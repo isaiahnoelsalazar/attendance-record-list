@@ -21,9 +21,10 @@ service cloud.firestore {
     }
 
     function isValidUser(data) {
-      return data.keys().hasAll(['name', 'email', 'role']) &&
+      return data.keys().hasAll(['name', 'email', 'username', 'role']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.email is string && data.email.matches('^.+@.+$') &&
+             data.username is string && data.username.size() > 0 && data.username.size() < 50 &&
              data.role in ['admin', 'employee'] &&
              (!('authMethod' in data) || data.authMethod in ['google', 'email']) &&
              (!('employeeType' in data) || data.employeeType in ['regular', 'intern']) &&

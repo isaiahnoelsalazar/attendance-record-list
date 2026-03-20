@@ -7,12 +7,13 @@
       "properties": {
         "name": { "type": "string", "description": "Full name" },
         "email": { "type": "string", "format": "email", "description": "Email address" },
+        "username": { "type": "string", "description": "Unique username or user ID" },
         "role": { "type": "string", "enum": ["admin", "employee"], "description": "User role" },
         "employeeType": { "type": "string", "enum": ["regular", "intern"], "description": "Type of employee" },
         "requiredHours": { "type": "number", "description": "Required hours for interns" },
         "faceImage": { "type": "string", "description": "Base64 encoded face image" }
       },
-      "required": ["name", "email", "role"]
+      "required": ["name", "email", "username", "role"]
     },
     "AttendanceRecord": {
       "title": "AttendanceRecord",

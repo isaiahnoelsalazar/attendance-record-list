@@ -4,6 +4,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  username: string;
   role: 'admin' | 'employee';
   authMethod?: 'google' | 'email';
   employeeType?: 'regular' | 'intern';

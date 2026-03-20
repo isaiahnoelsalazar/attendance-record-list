@@ -17,7 +17,9 @@ import {
   FileText,
   ChevronLeft,
   ChevronRight,
-  LogIn
+  LogIn,
+  Edit2,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths, isToday, parseISO } from 'date-fns';
@@ -49,7 +51,8 @@ import {
   updateDoc, 
   query, 
   where, 
-  onSnapshot 
+  onSnapshot,
+  deleteDoc
 } from 'firebase/firestore';
 
 function cn(...inputs: ClassValue[]) {
@@ -184,12 +187,14 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [gaps, setGaps] = useState<GapReason[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
   const [modalRole, setModalRole] = useState<'employee' | 'admin'>('employee');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [statusFilter, setStatusFilter] = useState<'all' | 'present' | 'absent' | 'timed-out'>('all');
   const [newUser, setNewUser] = useState({ 
     name: '', 
     email: '', 
+    username: '',
     password: '', 
     authMethod: 'email' as 'email' | 'google',
     faceImage: '', 
@@ -215,27 +220,36 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
   }, []);
 
   const handleCreateUser = async () => {
-    if (!newUser.name || !newUser.email) return;
-    if (newUser.authMethod === 'email' && !newUser.password) return;
-    if (modalRole === 'employee' && !newUser.faceImage) return;
+    if (!newUser.name || !newUser.email || !newUser.username) return;
+    if (newUser.authMethod === 'email' && !newUser.password && !editingUser) return;
+    if (modalRole === 'employee' && !newUser.faceImage && !editingUser) return;
     
     setCreating(true);
     try {
-      let userId = '';
+      // Check if username is unique (only if creating or username changed)
+      if (!editingUser || editingUser.username !== newUser.username) {
+        const q = query(collection(db, 'users'), where('username', '==', newUser.username));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          throw new Error('Username already exists. Please choose another one.');
+        }
+      }
+
+      let userId = editingUser?.id || '';
       
-      if (newUser.authMethod === 'email') {
-        // 1. Create user in Firebase Auth using secondary app to avoid signing out admin
-        const authUser = await createSecondaryUser(newUser.email, newUser.password);
-        userId = authUser.uid;
-      } else {
-        // For Google users, we use a temporary ID (email) and they'll be linked on first login
-        userId = `pending_${newUser.email.replace(/\./g, '_')}`;
+      if (!editingUser) {
+        if (newUser.authMethod === 'email') {
+          const authUser = await createSecondaryUser(newUser.email, newUser.password);
+          userId = authUser.uid;
+        } else {
+          userId = `pending_${newUser.email.replace(/\./g, '_')}`;
+        }
       }
       
-      // 2. Create user document in Firestore
       const userDoc: any = {
         name: newUser.name,
         email: newUser.email,
+        username: newUser.username,
         role: modalRole,
         authMethod: newUser.authMethod
       };
@@ -248,11 +262,12 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
         }
       }
 
-      await setDoc(doc(db, 'users', userId), userDoc);
+      await setDoc(doc(db, 'users', userId), userDoc, { merge: true });
 
       setNewUser({ 
         name: '', 
         email: '', 
+        username: '',
         password: '', 
         authMethod: 'email',
         faceImage: '', 
@@ -260,11 +275,37 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
         requiredHours: 0
       });
       setShowAddModal(false);
+      setEditingUser(null);
     } catch (err) {
       console.error(err);
-      alert(err instanceof Error ? err.message : 'Failed to create account');
+      alert(err instanceof Error ? err.message : 'Failed to save account');
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleEditUser = (user: User) => {
+    setEditingUser(user);
+    setModalRole(user.role);
+    setNewUser({
+      name: user.name,
+      email: user.email,
+      username: user.username || '',
+      password: '',
+      authMethod: user.authMethod || 'email',
+      faceImage: user.faceImage || '',
+      employeeType: user.employeeType || 'regular',
+      requiredHours: user.requiredHours || 0
+    });
+    setShowAddModal(true);
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return;
+    try {
+      await deleteDoc(doc(db, 'users', userId));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `users/${userId}`);
     }
   };
 
@@ -612,6 +653,54 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
               </motion.div>
             )}
 
+            {view === 'employees' && (
+              <motion.div 
+                key="employees"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+              >
+                {employees.map(emp => (
+                  <div key={emp.id} className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200 flex items-center justify-between group">
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 rounded-full overflow-hidden bg-zinc-100 flex items-center justify-center">
+                        {emp.faceImage ? (
+                          <img src={emp.faceImage} alt={emp.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <UserIcon size={32} className="text-zinc-400" />
+                        )}
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-zinc-900">{emp.name}</h4>
+                        <p className="text-sm text-zinc-500">{emp.email}</p>
+                        <div className="flex gap-2 mt-1">
+                          <span className="text-[10px] font-bold uppercase tracking-widest bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded">{emp.employeeType}</span>
+                          {emp.username && <span className="text-[10px] font-bold uppercase tracking-widest bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded">@{emp.username}</span>}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={() => handleEditUser(emp)}
+                        className="p-2 bg-zinc-100 text-zinc-600 rounded-lg hover:bg-zinc-200 transition-all"
+                        title="Edit User"
+                      >
+                        <Edit2 size={16} />
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteUser(emp.id)}
+                        className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-all"
+                        title="Delete User"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </motion.div>
+            )}
+
             {view === 'admins' && (
               <motion.div 
                 key="admins"
@@ -621,14 +710,37 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                 className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
               >
                 {admins.map(admin => (
-                  <div key={admin.id} className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200 flex items-center gap-4">
-                    <div className="w-16 h-16 rounded-full overflow-hidden bg-zinc-900 flex items-center justify-center text-white">
-                      <Shield size={32} />
+                  <div key={admin.id} className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200 flex items-center justify-between group">
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 rounded-full overflow-hidden bg-zinc-900 flex items-center justify-center text-white">
+                        <Shield size={32} />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-zinc-900">{admin.name}</h4>
+                        <p className="text-sm text-zinc-500">{admin.email}</p>
+                        <div className="flex gap-2 mt-1">
+                          <span className="text-[10px] font-bold uppercase tracking-widest bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded">Administrator</span>
+                          {admin.username && <span className="text-[10px] font-bold uppercase tracking-widest bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded">@{admin.username}</span>}
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="font-bold text-zinc-900">{admin.name}</h4>
-                      <p className="text-sm text-zinc-500">{admin.email}</p>
-                      <span className="text-[10px] font-bold uppercase tracking-widest bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded mt-1 inline-block">Administrator</span>
+                    <div className="flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={() => handleEditUser(admin)}
+                        className="p-2 bg-zinc-100 text-zinc-600 rounded-lg hover:bg-zinc-200 transition-all"
+                        title="Edit Admin"
+                      >
+                        <Edit2 size={16} />
+                      </button>
+                      {admin.email !== 'isaiahnoelsalazar474@gmail.com' && (
+                        <button 
+                          onClick={() => handleDeleteUser(admin.id)}
+                          className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-all"
+                          title="Delete Admin"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -747,8 +859,10 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
           >
             <div className="p-8">
               <div className="flex items-center justify-between mb-8">
-                <h3 className="text-2xl font-bold text-zinc-900">Add New {modalRole === 'admin' ? 'Admin' : 'Employee'}</h3>
-                <button onClick={() => setShowAddModal(false)} className="p-2 hover:bg-zinc-100 rounded-full">
+                <h3 className="text-2xl font-bold text-zinc-900">
+                  {editingUser ? 'Edit' : 'Add New'} {modalRole === 'admin' ? 'Admin' : 'Employee'}
+                </h3>
+                <button onClick={() => { setShowAddModal(false); setEditingUser(null); }} className="p-2 hover:bg-zinc-100 rounded-full">
                   <XCircle size={24} className="text-zinc-400" />
                 </button>
               </div>
@@ -770,6 +884,16 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                       Google
                     </button>
                   </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Username / User ID</label>
+                  <input 
+                    type="text" 
+                    value={newUser.username}
+                    onChange={e => setNewUser({ ...newUser, username: e.target.value.toLowerCase().replace(/\s+/g, '') })}
+                    className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-zinc-900 focus:border-transparent outline-none transition-all"
+                    placeholder="johndoe123"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Full Name</label>
@@ -1141,9 +1265,48 @@ const EmployeeDashboard = ({ user, onLogout }: { user: User, onLogout: () => voi
 const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [loginMode, setLoginMode] = useState<'google' | 'email'>('google');
+  const [loginMode, setLoginMode] = useState<'google' | 'email' | 'username'>('google');
   const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+
+  const handleUsernameLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!username || !password) return;
+    setLoading(true);
+    setError('');
+    try {
+      // 1. Find user by username
+      const q = query(collection(db, 'users'), where('username', '==', username.toLowerCase()));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        throw new Error('Username not found.');
+      }
+
+      const userData = querySnapshot.docs[0].data() as User;
+      const userEmail = userData.email;
+
+      if (!userEmail) {
+        throw new Error('User email not found for this username.');
+      }
+
+      // 2. Sign in with email and password
+      const result = await signInWithEmailAndPassword(auth, userEmail, password);
+      onLogin({ id: result.user.uid, ...userData });
+    } catch (err: any) {
+      console.error(err);
+      if (err.message === 'Username not found.') {
+        setError('Username not found.');
+      } else if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        setError('Invalid password.');
+      } else {
+        setError(err.message || 'Failed to sign in. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleGoogleLogin = async () => {
     setLoading(true);
@@ -1178,6 +1341,7 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
         const adminData = {
           name: result.user.displayName || 'Admin',
           email: userEmail || '',
+          username: 'admin',
           role: 'admin' as const,
           authMethod: 'google' as const
         };
@@ -1227,6 +1391,7 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
         const adminData = {
           name: 'Admin',
           email: userEmail || '',
+          username: 'admin',
           role: 'admin' as const,
           authMethod: 'email' as const
         };
@@ -1286,6 +1451,12 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
             >
               Email
             </button>
+            <button 
+              onClick={() => setLoginMode('username')}
+              className={cn("flex-1 py-2 rounded-xl text-sm font-bold transition-all", loginMode === 'username' ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500")}
+            >
+              Username
+            </button>
           </div>
 
           {loginMode === 'google' ? (
@@ -1301,7 +1472,7 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
               )}
               Sign in with Google
             </button>
-          ) : (
+          ) : loginMode === 'email' ? (
             <form onSubmit={handleEmailLogin} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Email Address</label>
@@ -1338,6 +1509,43 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
                 Sign in with Email
               </button>
             </form>
+          ) : (
+            <form onSubmit={handleUsernameLogin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Username / User ID</label>
+                <input 
+                  type="text" 
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-zinc-900 focus:border-transparent outline-none transition-all"
+                  placeholder="johndoe123"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Password</label>
+                <input 
+                  type="password" 
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-zinc-900 focus:border-transparent outline-none transition-all"
+                  placeholder="••••••••"
+                  required
+                />
+              </div>
+              <button 
+                type="submit"
+                disabled={loading}
+                className="w-full bg-zinc-900 text-white py-4 rounded-2xl font-bold hover:bg-zinc-800 transition-all shadow-lg flex items-center justify-center gap-3 disabled:opacity-50"
+              >
+                {loading ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <LogIn size={20} />
+                )}
+                Sign in with Username
+              </button>
+            </form>
           )}
         </div>
 
@@ -1358,7 +1566,15 @@ export default function App() {
       if (firebaseUser) {
         const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
         if (userDoc.exists()) {
-          setUser({ id: userDoc.id, ...userDoc.data() } as User);
+          const userData = userDoc.data() as User;
+          // Ensure bootstrap admin has a username
+          if (!userData.username && userData.email === 'isaiahnoelsalazar474@gmail.com') {
+            const updatedData = { ...userData, username: 'admin' };
+            await setDoc(doc(db, 'users', firebaseUser.uid), updatedData, { merge: true });
+            setUser({ id: userDoc.id, ...updatedData } as User);
+          } else {
+            setUser({ id: userDoc.id, ...userData } as User);
+          }
         } else {
           setUser(null);
         }
