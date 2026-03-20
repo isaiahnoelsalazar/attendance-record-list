@@ -11,44 +11,19 @@ import {
   Download, 
   Plus, 
   ArrowRight, 
+  ArrowLeft,
   Clock,
   UserPlus,
   Shield,
   FileText,
   ChevronLeft,
-  ChevronRight,
-  LogIn
+  ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths, isToday, parseISO } from 'date-fns';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths, isToday, parseISO, isValid } from 'date-fns';
 import * as XLSX from 'xlsx';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-
-import { 
-  auth, 
-  db, 
-  googleProvider, 
-  OperationType, 
-  handleFirestoreError 
-} from './firebase';
-import { 
-  signInWithPopup, 
-  onAuthStateChanged, 
-  signOut 
-} from 'firebase/auth';
-import { 
-  collection, 
-  doc, 
-  getDoc, 
-  getDocs, 
-  setDoc, 
-  addDoc, 
-  updateDoc, 
-  query, 
-  where, 
-  onSnapshot 
-} from 'firebase/firestore';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -56,6 +31,38 @@ function cn(...inputs: ClassValue[]) {
 
 // Types
 import { User, AttendanceRecord, GapReason, verifyFace } from './types';
+
+// API Helpers
+const api = {
+  getUsers: () => fetch('/api/users').then(res => res.json()),
+  createUser: (user: Partial<User>) => fetch('/api/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(user)
+  }).then(res => res.json()),
+  getRecords: () => fetch('/api/records').then(res => res.json()),
+  createRecord: (record: Partial<AttendanceRecord>) => fetch('/api/records', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(record)
+  }).then(res => res.json()),
+  updateRecord: (id: string, record: Partial<AttendanceRecord>) => fetch(`/api/records/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(record)
+  }).then(res => res.json()),
+  getGaps: () => fetch('/api/gaps').then(res => res.json()),
+  createGap: (gap: Partial<GapReason>) => fetch('/api/gaps', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(gap)
+  }).then(res => res.json()),
+  updateGap: (id: string, gap: Partial<GapReason>) => fetch(`/api/gaps/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(gap)
+  }).then(res => res.json()),
+};
 
 // Components
 const Camera = ({ onCapture, registeredFace }: { onCapture: (img: string) => void, registeredFace?: string }) => {
@@ -69,7 +76,7 @@ const Camera = ({ onCapture, registeredFace }: { onCapture: (img: string) => voi
       .then(stream => {
         if (videoRef.current) videoRef.current.srcObject = stream;
       })
-      .catch(() => setError("Camera access denied"));
+      .catch(err => setError("Camera access denied"));
   }, []);
 
   const capture = async () => {
@@ -184,34 +191,21 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
   const [showAddEmployee, setShowAddEmployee] = useState(false);
   const [newEmployee, setNewEmployee] = useState({ name: '', email: '', faceImage: '' });
 
-  useEffect(() => {
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-      setEmployees(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)).filter(u => u.role === 'employee'));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'users'));
+  const fetchData = async () => {
+    const [u, r, g] = await Promise.all([api.getUsers(), api.getRecords(), api.getGaps()]);
+    setEmployees(u.filter((user: User) => user.role === 'employee'));
+    setRecords(r);
+    setGaps(g);
+  };
 
-    const unsubRecords = onSnapshot(collection(db, 'records'), (snapshot) => {
-      setRecords(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AttendanceRecord)));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'records'));
-
-    const unsubGaps = onSnapshot(collection(db, 'gaps'), (snapshot) => {
-      setGaps(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as GapReason)));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'gaps'));
-
-    return () => { unsubUsers(); unsubRecords(); unsubGaps(); };
-  }, []);
+  useEffect(() => { fetchData(); }, []);
 
   const handleCreateEmployee = async () => {
     if (!newEmployee.name || !newEmployee.email || !newEmployee.faceImage) return;
-    try {
-      await addDoc(collection(db, 'users'), {
-        ...newEmployee,
-        role: 'employee'
-      });
-      setNewEmployee({ name: '', email: '', faceImage: '' });
-      setShowAddEmployee(false);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, 'users');
-    }
+    await api.createUser({ ...newEmployee, role: 'employee' });
+    setNewEmployee({ name: '', email: '', faceImage: '' });
+    setShowAddEmployee(false);
+    fetchData();
   };
 
   const handleExport = () => {
@@ -232,11 +226,8 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
   };
 
   const handleGapAction = async (gapId: string, status: 'approved' | 'denied') => {
-    try {
-      await updateDoc(doc(db, 'gaps', gapId), { status });
-    } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `gaps/${gapId}`);
-    }
+    await api.updateGap(gapId, { status });
+    fetchData();
   };
 
   return (
@@ -527,68 +518,57 @@ const EmployeeDashboard = ({ user, onLogout }: { user: User, onLogout: () => voi
   const [gapReason, setGapReason] = useState('');
   const [view, setView] = useState<'calendar' | 'table'>('calendar');
 
-  useEffect(() => {
-    const unsubRecords = onSnapshot(query(collection(db, 'records'), where('userId', '==', user.id)), (snapshot) => {
-      const userRecords = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AttendanceRecord));
-      setRecords(userRecords);
+  const fetchData = async () => {
+    const [r, g] = await Promise.all([api.getRecords(), api.getGaps()]);
+    const userRecords = r.filter((rec: AttendanceRecord) => rec.userId === user.id);
+    setRecords(userRecords);
+    setGaps(g.filter((gap: GapReason) => gap.userId === user.id));
 
-      // Check for missed time out from yesterday or before
-      const today = format(new Date(), 'yyyy-MM-dd');
-      const missed = userRecords.find(rec => rec.date !== today && rec.timeIn && !rec.timeOut && rec.status !== 'missed');
-      if (missed) {
-        setMissedRecord(missed);
-      }
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'records'));
+    // Check for missed time out from yesterday or before
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const missed = userRecords.find(rec => rec.date !== today && rec.timeIn && !rec.timeOut && rec.status !== 'missed');
+    if (missed) {
+      setMissedRecord(missed);
+    }
+  };
 
-    const unsubGaps = onSnapshot(query(collection(db, 'gaps'), where('userId', '==', user.id)), (snapshot) => {
-      setGaps(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as GapReason)));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'gaps'));
-
-    return () => { unsubRecords(); unsubGaps(); };
-  }, [user.id]);
+  useEffect(() => { fetchData(); }, []);
 
   const handleTimeAction = async (img: string) => {
     const today = format(new Date(), 'yyyy-MM-dd');
     const existingRecord = records.find(r => r.date === today);
 
-    try {
-      if (cameraMode === 'in') {
-        if (!existingRecord) {
-          await addDoc(collection(db, 'records'), {
-            userId: user.id,
-            date: today,
-            timeIn: new Date().toISOString(),
-            status: 'present'
-          });
-        }
-      } else {
-        if (existingRecord && !existingRecord.timeOut) {
-          await updateDoc(doc(db, 'records', existingRecord.id), {
-            timeOut: new Date().toISOString()
-          });
-        }
+    if (cameraMode === 'in') {
+      if (!existingRecord) {
+        await api.createRecord({
+          userId: user.id,
+          date: today,
+          timeIn: new Date().toISOString(),
+          status: 'present'
+        });
       }
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'records');
+    } else {
+      if (existingRecord && !existingRecord.timeOut) {
+        await api.updateRecord(existingRecord.id, {
+          timeOut: new Date().toISOString()
+        });
+      }
     }
     setShowCamera(false);
+    fetchData();
   };
 
   const handleSubmitGap = async () => {
     if (!missedRecord || !gapReason) return;
-    try {
-      await addDoc(collection(db, 'gaps'), {
-        userId: user.id,
-        recordId: missedRecord.id,
-        reason: gapReason,
-        status: 'pending'
-      });
-      await updateDoc(doc(db, 'records', missedRecord.id), { status: 'missed' });
-      setMissedRecord(null);
-      setGapReason('');
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'gaps');
-    }
+    await api.createGap({
+      userId: user.id,
+      recordId: missedRecord.id,
+      reason: gapReason
+    });
+    await api.updateRecord(missedRecord.id, { status: 'missed' });
+    setMissedRecord(null);
+    setGapReason('');
+    fetchData();
   };
 
   const todayRecord = records.find(r => r.date === format(new Date(), 'yyyy-MM-dd'));
@@ -782,40 +762,20 @@ const EmployeeDashboard = ({ user, onLogout }: { user: User, onLogout: () => voi
 };
 
 const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
-  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState('');
   const [error, setError] = useState('');
 
-  const handleGoogleLogin = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const email = result.user.email;
-      
-      // Check if user exists in Firestore
-      const usersSnap = await getDocs(query(collection(db, 'users'), where('email', '==', email)));
-      
-      if (!usersSnap.empty) {
-        const userData = { id: usersSnap.docs[0].id, ...usersSnap.docs[0].data() } as User;
-        onLogin(userData);
-      } else if (email === 'isaiahnoelsalazar474@gmail.com') {
-        // Bootstrap admin
-        const adminData = {
-          name: result.user.displayName || 'Admin',
-          email: email,
-          role: 'admin' as const
-        };
-        await setDoc(doc(db, 'users', result.user.uid), adminData);
-        onLogin({ id: result.user.uid, ...adminData });
-      } else {
-        setError('Access denied. Please contact your administrator to register your account.');
-        await signOut(auth);
-      }
-    } catch (err) {
-      console.error(err);
-      setError('Failed to sign in. Please try again.');
-    } finally {
-      setLoading(false);
+  const handleLogin = async () => {
+    const users = await api.getUsers();
+    const user = users.find((u: User) => u.email === email);
+    if (user) {
+      onLogin(user);
+    } else if (email === 'admin@system.com') {
+      // Default admin for first time
+      const admin = await api.createUser({ name: 'System Admin', email: 'admin@system.com', role: 'admin' });
+      onLogin(admin);
+    } else {
+      setError('User not found. Please contact admin.');
     }
   };
 
@@ -832,33 +792,33 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
           </div>
           <div>
             <h1 className="text-3xl font-bold text-zinc-900">Attendance System</h1>
-            <p className="text-zinc-500 mt-2">Sign in with your corporate account</p>
+            <p className="text-zinc-500 mt-2">Sign in to manage your time records</p>
           </div>
         </div>
 
         <div className="space-y-6">
-          {error && (
-            <div className="p-4 bg-red-50 text-red-600 rounded-2xl text-sm font-medium flex items-center gap-3">
-              <AlertCircle size={18} />
-              {error}
-            </div>
-          )}
+          <div>
+            <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Email Address</label>
+            <input 
+              type="email" 
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              className="w-full px-5 py-4 rounded-2xl border border-zinc-200 focus:ring-2 focus:ring-zinc-900 focus:border-transparent outline-none transition-all"
+              placeholder="name@company.com"
+            />
+          </div>
+          {error && <p className="text-red-500 text-sm font-medium">{error}</p>}
           <button 
-            onClick={handleGoogleLogin}
-            disabled={loading}
-            className="w-full bg-zinc-900 text-white py-4 rounded-2xl font-bold hover:bg-zinc-800 transition-all shadow-lg flex items-center justify-center gap-3 disabled:opacity-50"
+            onClick={handleLogin}
+            className="w-full bg-zinc-900 text-white py-4 rounded-2xl font-bold hover:bg-zinc-800 transition-all shadow-lg flex items-center justify-center gap-2"
           >
-            {loading ? (
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <LogIn size={20} />
-            )}
-            Sign in with Google
+            Sign In
+            <ArrowRight size={20} />
           </button>
         </div>
 
         <div className="mt-10 pt-10 border-t border-zinc-100 text-center">
-          <p className="text-xs text-zinc-400">Secure access powered by Firebase</p>
+          <p className="text-sm text-zinc-400">Default Admin: <span className="font-bold text-zinc-600">admin@system.com</span></p>
         </div>
       </motion.div>
     </div>
@@ -867,39 +827,23 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        const usersSnap = await getDocs(query(collection(db, 'users'), where('email', '==', firebaseUser.email)));
-        if (!usersSnap.empty) {
-          setUser({ id: usersSnap.docs[0].id, ...usersSnap.docs[0].data() } as User);
-        } else {
-          setUser(null);
-        }
-      } else {
-        setUser(null);
-      }
-      setLoading(false);
-    });
-    return () => unsub();
+    const saved = localStorage.getItem('attendance_user');
+    if (saved) setUser(JSON.parse(saved));
   }, []);
 
-  const handleLogout = async () => {
-    await signOut(auth);
-    setUser(null);
+  const handleLogin = (u: User) => {
+    setUser(u);
+    localStorage.setItem('attendance_user', JSON.stringify(u));
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-zinc-50 flex items-center justify-center">
-        <div className="w-12 h-12 border-4 border-zinc-900 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem('attendance_user');
+  };
 
-  if (!user) return <Login onLogin={setUser} />;
+  if (!user) return <Login onLogin={handleLogin} />;
 
   return user.role === 'admin' ? (
     <AdminDashboard user={user} onLogout={handleLogout} />

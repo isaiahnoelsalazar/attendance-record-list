@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email == "isaiahnoelsalazar474@gmail.com" ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['name', 'email', 'role']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.email is string && data.email.matches('^.+@.+$') &&
+             data.role in ['admin', 'employee'] &&
+             (!('faceImage' in data) || (data.faceImage is string && data.faceImage.size() < 1000000));
+    }
+
+    function isValidRecord(data) {
+      return data.keys().hasAll(['userId', 'date', 'status']) &&
+             data.userId is string &&
+             data.date is string && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+             data.status in ['present', 'absent', 'missed'] &&
+             (!('timeIn' in data) || data.timeIn is string) &&
+             (!('timeOut' in data) || data.timeOut is string);
+    }
+
+    function isValidGap(data) {
+      return data.keys().hasAll(['userId', 'recordId', 'reason', 'status']) &&
+             data.userId is string &&
+             data.recordId is string &&
+             data.reason is string && data.reason.size() > 0 && data.reason.size() < 1000 &&
+             data.status in ['pending', 'approved', 'denied'];
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow create, update: if isAdmin() && isValidUser(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /records/{recordId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
+      allow create: if isAuthenticated() && isValidRecord(request.resource.data) && (request.resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAuthenticated() && isValidRecord(request.resource.data) && (
+        (request.auth.uid == resource.data.userId && request.resource.data.userId == resource.data.userId) || 
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /gaps/{gapId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
+      allow create: if isAuthenticated() && isValidGap(request.resource.data) && request.resource.data.userId == request.auth.uid;
+      allow update: if isAdmin() && isValidGap(request.resource.data);
+      allow delete: if isAdmin();
+    }
+  }
+}
