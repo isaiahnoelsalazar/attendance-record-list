@@ -264,6 +264,19 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
 
       await setDoc(doc(db, 'users', userId), userDoc, { merge: true });
 
+      // Maintain usernames collection for login lookup
+      if (!editingUser || editingUser.username !== newUser.username) {
+        // Delete old username if it changed
+        if (editingUser && editingUser.username) {
+          await deleteDoc(doc(db, 'usernames', editingUser.username));
+        }
+        // Set new username mapping
+        await setDoc(doc(db, 'usernames', newUser.username), { email: newUser.email, userId });
+      } else if (editingUser && editingUser.email !== newUser.email) {
+        // Update email in username mapping if email changed but username stayed same
+        await setDoc(doc(db, 'usernames', newUser.username), { email: newUser.email, userId });
+      }
+
       setNewUser({ 
         name: '', 
         email: '', 
@@ -303,6 +316,10 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
   const handleDeleteUser = async (userId: string) => {
     if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return;
     try {
+      const userToDelete = users.find(u => u.id === userId);
+      if (userToDelete?.username) {
+        await deleteDoc(doc(db, 'usernames', userToDelete.username));
+      }
       await deleteDoc(doc(db, 'users', userId));
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `users/${userId}`);
@@ -1276,16 +1293,14 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
     setLoading(true);
     setError('');
     try {
-      // 1. Find user by username
-      const q = query(collection(db, 'users'), where('username', '==', username.toLowerCase()));
-      const querySnapshot = await getDocs(q);
+      // 1. Find user by username using the public usernames collection
+      const usernameDoc = await getDoc(doc(db, 'usernames', username.toLowerCase()));
       
-      if (querySnapshot.empty) {
+      if (!usernameDoc.exists()) {
         throw new Error('Username not found.');
       }
 
-      const userData = querySnapshot.docs[0].data() as User;
-      const userEmail = userData.email;
+      const { email: userEmail } = usernameDoc.data();
 
       if (!userEmail) {
         throw new Error('User email not found for this username.');
@@ -1293,7 +1308,14 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
 
       // 2. Sign in with email and password
       const result = await signInWithEmailAndPassword(auth, userEmail, password);
-      onLogin({ id: result.user.uid, ...userData });
+      
+      // 3. Get full user data
+      const userDoc = await getDoc(doc(db, 'users', result.user.uid));
+      if (userDoc.exists()) {
+        onLogin({ id: userDoc.id, ...userDoc.data() } as User);
+      } else {
+        throw new Error('User profile not found.');
+      }
     } catch (err: any) {
       console.error(err);
       if (err.message === 'Username not found.') {
@@ -1346,6 +1368,7 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
           authMethod: 'google' as const
         };
         await setDoc(doc(db, 'users', result.user.uid), adminData);
+        await setDoc(doc(db, 'usernames', 'admin'), { email: userEmail, userId: result.user.uid });
         onLogin({ id: result.user.uid, ...adminData });
       } else {
         setError('Access denied. Please contact your administrator to register your account.');
@@ -1396,6 +1419,7 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
           authMethod: 'email' as const
         };
         await setDoc(doc(db, 'users', result.user.uid), adminData);
+        await setDoc(doc(db, 'usernames', 'admin'), { email: userEmail, userId: result.user.uid });
         onLogin({ id: result.user.uid, ...adminData });
       } else {
         setError('Access denied. Please contact your administrator.');
