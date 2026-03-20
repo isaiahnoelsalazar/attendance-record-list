@@ -19,7 +19,9 @@ import {
   ChevronRight,
   LogIn,
   Edit2,
-  Trash2
+  Trash2,
+  Upload,
+  Image as ImageIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths, isToday, parseISO } from 'date-fns';
@@ -235,6 +237,15 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
         }
       }
 
+      // Check if email is unique (only if creating or email changed)
+      if (!editingUser || editingUser.email !== newUser.email) {
+        const q = query(collection(db, 'users'), where('email', '==', newUser.email));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          throw new Error('Email already exists in the system.');
+        }
+      }
+
       let userId = editingUser?.id || '';
       
       if (!editingUser) {
@@ -289,11 +300,33 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
       });
       setShowAddModal(false);
       setEditingUser(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert(err instanceof Error ? err.message : 'Failed to save account');
+      let message = 'Failed to save account';
+      if (err instanceof Error) {
+        message = err.message;
+        if (err.message.includes('auth/email-already-in-use')) {
+          message = 'This email is already registered in the system. Please use a different email or check if the account already exists.';
+        }
+      }
+      alert(message);
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        alert("File size too large. Please upload an image smaller than 2MB.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setNewUser({ ...newUser, faceImage: reader.result as string });
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -985,7 +1018,29 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                           </button>
                         </div>
                       ) : (
-                        <Camera onCapture={img => setNewUser({ ...newUser, faceImage: img })} />
+                        <div className="space-y-4">
+                          <Camera onCapture={img => setNewUser({ ...newUser, faceImage: img })} />
+                          
+                          <div className="relative flex items-center py-2">
+                            <div className="flex-grow border-t border-zinc-200"></div>
+                            <span className="flex-shrink mx-4 text-xs font-bold text-zinc-400 uppercase tracking-widest">OR</span>
+                            <div className="flex-grow border-t border-zinc-200"></div>
+                          </div>
+
+                          <label className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-zinc-200 rounded-2xl hover:bg-zinc-50 transition-all cursor-pointer group">
+                            <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                              <Upload className="w-8 h-8 text-zinc-400 group-hover:text-zinc-600 mb-2" />
+                              <p className="text-sm text-zinc-500 group-hover:text-zinc-700 font-medium">Click to upload face image</p>
+                              <p className="text-xs text-zinc-400 mt-1">PNG, JPG or JPEG (MAX. 2MB)</p>
+                            </div>
+                            <input 
+                              type="file" 
+                              className="hidden" 
+                              accept="image/*"
+                              onChange={handleFileUpload}
+                            />
+                          </label>
+                        </div>
                       )}
                     </div>
                   </>
@@ -1294,13 +1349,30 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
     setError('');
     try {
       // 1. Find user by username using the public usernames collection
-      const usernameDoc = await getDoc(doc(db, 'usernames', username.toLowerCase()));
+      const usernameLower = username.toLowerCase();
+      let usernameDoc = await getDoc(doc(db, 'usernames', usernameLower));
       
-      if (!usernameDoc.exists()) {
-        throw new Error('Username not found.');
-      }
+      let userEmail = '';
+      let userId = '';
 
-      const { email: userEmail } = usernameDoc.data();
+      if (!usernameDoc.exists()) {
+        // Fallback: Search the users collection directly if mapping is missing
+        const q = query(collection(db, 'users'), where('username', '==', usernameLower));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const userData = snap.docs[0].data();
+          userEmail = userData.email;
+          userId = snap.docs[0].id;
+          // Repair mapping for future logins
+          await setDoc(doc(db, 'usernames', usernameLower), { email: userEmail, userId });
+        } else {
+          throw new Error('Username not found.');
+        }
+      } else {
+        const data = usernameDoc.data();
+        userEmail = data?.email;
+        userId = data?.userId;
+      }
 
       if (!userEmail) {
         throw new Error('User email not found for this username.');
@@ -1591,16 +1663,41 @@ export default function App() {
         const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
         if (userDoc.exists()) {
           const userData = userDoc.data() as User;
-          // Ensure bootstrap admin has a username
-          if (!userData.username && userData.email === 'isaiahnoelsalazar474@gmail.com') {
-            const updatedData = { ...userData, username: 'admin' };
-            await setDoc(doc(db, 'users', firebaseUser.uid), updatedData, { merge: true });
+          // Ensure bootstrap admin has a username and mapping
+          if (userData.email === 'isaiahnoelsalazar474@gmail.com') {
+            const username = userData.username || 'admin';
+            const updatedData = { ...userData, username, role: 'admin' };
+            
+            // Ensure username mapping exists for login
+            const usernameDoc = await getDoc(doc(db, 'usernames', username));
+            if (!usernameDoc.exists()) {
+              await setDoc(doc(db, 'usernames', username), { email: userData.email, userId: firebaseUser.uid });
+            }
+            
+            if (!userData.username || userData.role !== 'admin') {
+              await setDoc(doc(db, 'users', firebaseUser.uid), updatedData, { merge: true });
+            }
             setUser({ id: userDoc.id, ...updatedData } as User);
           } else {
             setUser({ id: userDoc.id, ...userData } as User);
           }
         } else {
-          setUser(null);
+          // If bootstrap admin document is missing, create it
+          if (firebaseUser.email === 'isaiahnoelsalazar474@gmail.com') {
+            const adminData: User = {
+              id: firebaseUser.uid,
+              name: 'System Admin',
+              email: firebaseUser.email,
+              username: 'admin',
+              role: 'admin',
+              authMethod: 'google' // Assuming Google login for bootstrap admin
+            };
+            await setDoc(doc(db, 'users', firebaseUser.uid), adminData);
+            await setDoc(doc(db, 'usernames', 'admin'), { email: firebaseUser.email, userId: firebaseUser.uid });
+            setUser(adminData);
+          } else {
+            setUser(null);
+          }
         }
       } else {
         setUser(null);

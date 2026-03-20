@@ -40,8 +40,25 @@ export async function createSecondaryUser(email: string, password: string) {
   const secondaryApp = initializeApp(firebaseConfig, secondaryAppName);
   const secondaryAuth = getAuth(secondaryApp);
   try {
-    const result = await createUserWithEmailAndPassword(secondaryAuth, email, password);
-    return result.user;
+    try {
+      const result = await createUserWithEmailAndPassword(secondaryAuth, email, password);
+      return result.user;
+    } catch (err: any) {
+      if (err.code === 'auth/email-already-in-use') {
+        // If email is already in use, try to sign in with the provided password
+        // to see if we can "re-claim" the account for this UID.
+        try {
+          const result = await signInWithEmailAndPassword(secondaryAuth, email, password);
+          return result.user;
+        } catch (signInErr: any) {
+          // If sign-in fails, it means the email is taken by someone else 
+          // or the password provided is wrong for the existing account.
+          // Throw the original "email-already-in-use" error to be safe.
+          throw err;
+        }
+      }
+      throw err;
+    }
   } finally {
     await deleteApp(secondaryApp);
   }

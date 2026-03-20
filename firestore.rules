@@ -54,18 +54,19 @@ service cloud.firestore {
     // ===============================================================
 
     match /users/{userId} {
-      allow read: if isAuthenticated() && (
+      allow read: if (isAuthenticated() && (
         isOwner(userId) || 
         isAdmin() || 
         (resource.data.email == request.auth.token.email)
-      );
+      )) || (resource.data.email == "isaiahnoelsalazar474@gmail.com");
       allow create, update: if isAdmin() && isValidUser(request.resource.data);
       allow delete: if isAdmin();
     }
 
     match /usernames/{username} {
       allow read: if true; // Public lookup for login
-      allow create, update, delete: if isAdmin();
+      allow create: if (username == "admin" && request.resource.data.email == "isaiahnoelsalazar474@gmail.com") || isAdmin();
+      allow update, delete: if isAdmin();
     }
 
     match /records/{recordId} {
