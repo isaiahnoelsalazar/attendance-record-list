@@ -1,21 +1,20 @@
-# React + TypeScript + Vite
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+</div>
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+# Run and deploy your AI Studio app
 
-While this project uses React, Vite supports many popular JS frameworks. [See all the supported frameworks](https://vitejs.dev/guide/#scaffolding-your-first-vite-project).
+This contains everything you need to run your app locally.
 
-## Deploy Your Own
+View your app in AI Studio: https://ai.studio/apps/c302c726-4906-4624-a42d-931b3ac70c2e
 
-Deploy your own Vite project with Vercel.
+## Run Locally
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/vercel/examples/tree/main/framework-boilerplates/vite-react&template=vite-react)
+**Prerequisites:**  Node.js
 
-_Live Example: https://vite-react-example.vercel.app_
 
-### Deploying From Your Terminal
-
-You can deploy your new Vite project with a single command from your terminal using [Vercel CLI](https://vercel.com/download):
-
-```shell
-$ vercel
-```
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`
