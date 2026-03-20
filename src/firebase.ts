@@ -1,5 +1,13 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from 'firebase/auth';
+import { initializeApp, getApp, getApps, deleteApp } from 'firebase/app';
+import { 
+  getAuth, 
+  GoogleAuthProvider, 
+  signInWithPopup, 
+  onAuthStateChanged, 
+  signOut,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword
+} from 'firebase/auth';
 import { getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, getDocFromServer } from 'firebase/firestore';
 import { getStorage, ref, uploadString, getDownloadURL } from 'firebase/storage';
 
@@ -16,9 +24,28 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+export { firebaseConfig }; // Export config for secondary app usage
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
+
+export { signInWithEmailAndPassword, createUserWithEmailAndPassword };
+
+/**
+ * Creates a user using a secondary Firebase app instance to avoid 
+ * signing out the current admin user.
+ */
+export async function createSecondaryUser(email: string, password: string) {
+  const secondaryAppName = `SecondaryApp_${Date.now()}`;
+  const secondaryApp = initializeApp(firebaseConfig, secondaryAppName);
+  const secondaryAuth = getAuth(secondaryApp);
+  try {
+    const result = await createUserWithEmailAndPassword(secondaryAuth, email, password);
+    return result.user;
+  } finally {
+    await deleteApp(secondaryApp);
+  }
+}
 
 // Test connection
 async function testConnection() {

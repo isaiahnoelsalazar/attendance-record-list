@@ -30,7 +30,9 @@ import {
   db, 
   googleProvider, 
   OperationType, 
-  handleFirestoreError 
+  handleFirestoreError,
+  signInWithEmailAndPassword,
+  createSecondaryUser
 } from './firebase';
 import { 
   signInWithPopup, 
@@ -182,7 +184,8 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [gaps, setGaps] = useState<GapReason[]>([]);
   const [showAddEmployee, setShowAddEmployee] = useState(false);
-  const [newEmployee, setNewEmployee] = useState({ name: '', email: '', faceImage: '' });
+  const [newEmployee, setNewEmployee] = useState({ name: '', email: '', password: '', faceImage: '' });
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
@@ -201,16 +204,27 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
   }, []);
 
   const handleCreateEmployee = async () => {
-    if (!newEmployee.name || !newEmployee.email || !newEmployee.faceImage) return;
+    if (!newEmployee.name || !newEmployee.email || !newEmployee.password || !newEmployee.faceImage) return;
+    setCreating(true);
     try {
-      await addDoc(collection(db, 'users'), {
-        ...newEmployee,
+      // 1. Create user in Firebase Auth using secondary app to avoid signing out admin
+      const authUser = await createSecondaryUser(newEmployee.email, newEmployee.password);
+      
+      // 2. Create user document in Firestore
+      await setDoc(doc(db, 'users', authUser.uid), {
+        name: newEmployee.name,
+        email: newEmployee.email,
+        faceImage: newEmployee.faceImage,
         role: 'employee'
       });
-      setNewEmployee({ name: '', email: '', faceImage: '' });
+
+      setNewEmployee({ name: '', email: '', password: '', faceImage: '' });
       setShowAddEmployee(false);
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, 'users');
+      console.error(err);
+      alert(err instanceof Error ? err.message : 'Failed to create employee account');
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -479,6 +493,16 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                   />
                 </div>
                 <div>
+                  <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Password</label>
+                  <input 
+                    type="password" 
+                    value={newEmployee.password}
+                    onChange={e => setNewEmployee({ ...newEmployee, password: e.target.value })}
+                    className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-zinc-900 focus:border-transparent outline-none transition-all"
+                    placeholder="••••••••"
+                  />
+                </div>
+                <div>
                   <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Face Registration</label>
                   {newEmployee.faceImage ? (
                     <div className="relative w-full aspect-video rounded-xl overflow-hidden border-2 border-zinc-200">
@@ -505,8 +529,10 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                 </button>
                 <button 
                   onClick={handleCreateEmployee}
-                  className="flex-1 px-6 py-4 rounded-2xl bg-zinc-900 text-white font-bold hover:bg-zinc-800 transition-all shadow-lg"
+                  disabled={creating}
+                  className="flex-1 px-6 py-4 rounded-2xl bg-zinc-900 text-white font-bold hover:bg-zinc-800 transition-all shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
                 >
+                  {creating && <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
                   Create Account
                 </button>
               </div>
@@ -784,25 +810,28 @@ const EmployeeDashboard = ({ user, onLogout }: { user: User, onLogout: () => voi
 const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [loginMode, setLoginMode] = useState<'google' | 'email'>('google');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   const handleGoogleLogin = async () => {
     setLoading(true);
     setError('');
     try {
       const result = await signInWithPopup(auth, googleProvider);
-      const email = result.user.email;
+      const userEmail = result.user.email;
       
       // Check if user exists in Firestore
-      const usersSnap = await getDocs(query(collection(db, 'users'), where('email', '==', email)));
+      const userDoc = await getDoc(doc(db, 'users', result.user.uid));
       
-      if (!usersSnap.empty) {
-        const userData = { id: usersSnap.docs[0].id, ...usersSnap.docs[0].data() } as User;
+      if (userDoc.exists()) {
+        const userData = { id: userDoc.id, ...userDoc.data() } as User;
         onLogin(userData);
-      } else if (email === 'isaiahnoelsalazar474@gmail.com') {
+      } else if (userEmail === 'isaiahnoelsalazar474@gmail.com') {
         // Bootstrap admin
         const adminData = {
           name: result.user.displayName || 'Admin',
-          email: email,
+          email: userEmail || '',
           role: 'admin' as const
         };
         await setDoc(doc(db, 'users', result.user.uid), adminData);
@@ -813,7 +842,46 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
       }
     } catch (err) {
       console.error(err);
-      setError('Failed to sign in. Please try again.');
+      setError('Failed to sign in with Google.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEmailLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) return;
+    setLoading(true);
+    setError('');
+    try {
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      const userEmail = result.user.email;
+      
+      const userDoc = await getDoc(doc(db, 'users', result.user.uid));
+      
+      if (userDoc.exists()) {
+        const userData = { id: userDoc.id, ...userDoc.data() } as User;
+        onLogin(userData);
+      } else if (userEmail === 'isaiahnoelsalazar474@gmail.com') {
+        // Bootstrap admin via email if they registered it
+        const adminData = {
+          name: 'Admin',
+          email: userEmail || '',
+          role: 'admin' as const
+        };
+        await setDoc(doc(db, 'users', result.user.uid), adminData);
+        onLogin({ id: result.user.uid, ...adminData });
+      } else {
+        setError('Access denied. Please contact your administrator.');
+        await signOut(auth);
+      }
+    } catch (err: any) {
+      console.error(err);
+      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        setError('Invalid email or password.');
+      } else {
+        setError('Failed to sign in. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -832,7 +900,7 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
           </div>
           <div>
             <h1 className="text-3xl font-bold text-zinc-900">Attendance System</h1>
-            <p className="text-zinc-500 mt-2">Sign in with your corporate account</p>
+            <p className="text-zinc-500 mt-2">Sign in to your account</p>
           </div>
         </div>
 
@@ -843,18 +911,73 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
               {error}
             </div>
           )}
-          <button 
-            onClick={handleGoogleLogin}
-            disabled={loading}
-            className="w-full bg-zinc-900 text-white py-4 rounded-2xl font-bold hover:bg-zinc-800 transition-all shadow-lg flex items-center justify-center gap-3 disabled:opacity-50"
-          >
-            {loading ? (
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <LogIn size={20} />
-            )}
-            Sign in with Google
-          </button>
+
+          <div className="flex bg-zinc-100 p-1 rounded-2xl">
+            <button 
+              onClick={() => setLoginMode('google')}
+              className={cn("flex-1 py-2 rounded-xl text-sm font-bold transition-all", loginMode === 'google' ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500")}
+            >
+              Google
+            </button>
+            <button 
+              onClick={() => setLoginMode('email')}
+              className={cn("flex-1 py-2 rounded-xl text-sm font-bold transition-all", loginMode === 'email' ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500")}
+            >
+              Email
+            </button>
+          </div>
+
+          {loginMode === 'google' ? (
+            <button 
+              onClick={handleGoogleLogin}
+              disabled={loading}
+              className="w-full bg-zinc-900 text-white py-4 rounded-2xl font-bold hover:bg-zinc-800 transition-all shadow-lg flex items-center justify-center gap-3 disabled:opacity-50"
+            >
+              {loading ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <LogIn size={20} />
+              )}
+              Sign in with Google
+            </button>
+          ) : (
+            <form onSubmit={handleEmailLogin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Email Address</label>
+                <input 
+                  type="email" 
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-zinc-900 focus:border-transparent outline-none transition-all"
+                  placeholder="name@company.com"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Password</label>
+                <input 
+                  type="password" 
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-zinc-900 focus:border-transparent outline-none transition-all"
+                  placeholder="••••••••"
+                  required
+                />
+              </div>
+              <button 
+                type="submit"
+                disabled={loading}
+                className="w-full bg-zinc-900 text-white py-4 rounded-2xl font-bold hover:bg-zinc-800 transition-all shadow-lg flex items-center justify-center gap-3 disabled:opacity-50"
+              >
+                {loading ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <LogIn size={20} />
+                )}
+                Sign in with Email
+              </button>
+            </form>
+          )}
         </div>
 
         <div className="mt-10 pt-10 border-t border-zinc-100 text-center">
@@ -872,9 +995,9 @@ export default function App() {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        const usersSnap = await getDocs(query(collection(db, 'users'), where('email', '==', firebaseUser.email)));
-        if (!usersSnap.empty) {
-          setUser({ id: usersSnap.docs[0].id, ...usersSnap.docs[0].data() } as User);
+        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+        if (userDoc.exists()) {
+          setUser({ id: userDoc.id, ...userDoc.data() } as User);
         } else {
           setUser(null);
         }
