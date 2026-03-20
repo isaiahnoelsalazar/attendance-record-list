@@ -5,6 +5,9 @@ export interface User {
   name: string;
   email: string;
   role: 'admin' | 'employee';
+  authMethod?: 'google' | 'email';
+  employeeType?: 'regular' | 'intern';
+  requiredHours?: number;
   faceImage?: string; // Base64
 }
 

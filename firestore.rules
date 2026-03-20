@@ -25,6 +25,9 @@ service cloud.firestore {
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.email is string && data.email.matches('^.+@.+$') &&
              data.role in ['admin', 'employee'] &&
+             (!('authMethod' in data) || data.authMethod in ['google', 'email']) &&
+             (!('employeeType' in data) || data.employeeType in ['regular', 'intern']) &&
+             (!('requiredHours' in data) || data.requiredHours is number) &&
              (!('faceImage' in data) || (data.faceImage is string && data.faceImage.size() < 1000000));
     }
 

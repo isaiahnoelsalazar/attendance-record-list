@@ -8,6 +8,8 @@
         "name": { "type": "string", "description": "Full name" },
         "email": { "type": "string", "format": "email", "description": "Email address" },
         "role": { "type": "string", "enum": ["admin", "employee"], "description": "User role" },
+        "employeeType": { "type": "string", "enum": ["regular", "intern"], "description": "Type of employee" },
+        "requiredHours": { "type": "number", "description": "Required hours for interns" },
         "faceImage": { "type": "string", "description": "Base64 encoded face image" }
       },
       "required": ["name", "email", "role"]

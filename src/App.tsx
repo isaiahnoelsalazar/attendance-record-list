@@ -179,17 +179,26 @@ const Calendar = ({ records, userId }: { records: AttendanceRecord[], userId: st
 };
 
 const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => {
-  const [view, setView] = useState<'employees' | 'attendance' | 'gaps'>('employees');
-  const [employees, setEmployees] = useState<User[]>([]);
+  const [view, setView] = useState<'employees' | 'admins' | 'attendance' | 'gaps'>('employees');
+  const [users, setUsers] = useState<User[]>([]);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [gaps, setGaps] = useState<GapReason[]>([]);
-  const [showAddEmployee, setShowAddEmployee] = useState(false);
-  const [newEmployee, setNewEmployee] = useState({ name: '', email: '', password: '', faceImage: '' });
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [modalRole, setModalRole] = useState<'employee' | 'admin'>('employee');
+  const [newUser, setNewUser] = useState({ 
+    name: '', 
+    email: '', 
+    password: '', 
+    authMethod: 'email' as 'email' | 'google',
+    faceImage: '', 
+    employeeType: 'regular' as 'regular' | 'intern',
+    requiredHours: 0
+  });
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-      setEmployees(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)).filter(u => u.role === 'employee'));
+      setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'users'));
 
     const unsubRecords = onSnapshot(collection(db, 'records'), (snapshot) => {
@@ -203,30 +212,62 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
     return () => { unsubUsers(); unsubRecords(); unsubGaps(); };
   }, []);
 
-  const handleCreateEmployee = async () => {
-    if (!newEmployee.name || !newEmployee.email || !newEmployee.password || !newEmployee.faceImage) return;
+  const handleCreateUser = async () => {
+    if (!newUser.name || !newUser.email) return;
+    if (newUser.authMethod === 'email' && !newUser.password) return;
+    if (modalRole === 'employee' && !newUser.faceImage) return;
+    
     setCreating(true);
     try {
-      // 1. Create user in Firebase Auth using secondary app to avoid signing out admin
-      const authUser = await createSecondaryUser(newEmployee.email, newEmployee.password);
+      let userId = '';
+      
+      if (newUser.authMethod === 'email') {
+        // 1. Create user in Firebase Auth using secondary app to avoid signing out admin
+        const authUser = await createSecondaryUser(newUser.email, newUser.password);
+        userId = authUser.uid;
+      } else {
+        // For Google users, we use a temporary ID (email) and they'll be linked on first login
+        userId = `pending_${newUser.email.replace(/\./g, '_')}`;
+      }
       
       // 2. Create user document in Firestore
-      await setDoc(doc(db, 'users', authUser.uid), {
-        name: newEmployee.name,
-        email: newEmployee.email,
-        faceImage: newEmployee.faceImage,
-        role: 'employee'
-      });
+      const userDoc: any = {
+        name: newUser.name,
+        email: newUser.email,
+        role: modalRole,
+        authMethod: newUser.authMethod
+      };
 
-      setNewEmployee({ name: '', email: '', password: '', faceImage: '' });
-      setShowAddEmployee(false);
+      if (modalRole === 'employee') {
+        userDoc.faceImage = newUser.faceImage;
+        userDoc.employeeType = newUser.employeeType;
+        if (newUser.employeeType === 'intern') {
+          userDoc.requiredHours = newUser.requiredHours;
+        }
+      }
+
+      await setDoc(doc(db, 'users', userId), userDoc);
+
+      setNewUser({ 
+        name: '', 
+        email: '', 
+        password: '', 
+        authMethod: 'email',
+        faceImage: '', 
+        employeeType: 'regular',
+        requiredHours: 0
+      });
+      setShowAddModal(false);
     } catch (err) {
       console.error(err);
-      alert(err instanceof Error ? err.message : 'Failed to create employee account');
+      alert(err instanceof Error ? err.message : 'Failed to create account');
     } finally {
       setCreating(false);
     }
   };
+
+  const employees = users.filter(u => u.role === 'employee');
+  const admins = users.filter(u => u.role === 'admin');
 
   const handleExport = () => {
     const data = records.map(r => {
@@ -273,6 +314,13 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
             Employees
           </button>
           <button 
+            onClick={() => setView('admins')}
+            className={cn("flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium", view === 'admins' ? "bg-zinc-900 text-white shadow-lg" : "text-zinc-500 hover:bg-zinc-100")}
+          >
+            <Shield size={20} />
+            Admins
+          </button>
+          <button 
             onClick={() => setView('attendance')}
             className={cn("flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium", view === 'attendance' ? "bg-zinc-900 text-white shadow-lg" : "text-zinc-500 hover:bg-zinc-100")}
           >
@@ -306,11 +354,20 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
             </div>
             {view === 'employees' && (
               <button 
-                onClick={() => setShowAddEmployee(true)}
+                onClick={() => { setModalRole('employee'); setShowAddModal(true); }}
                 className="flex items-center gap-2 bg-zinc-900 text-white px-6 py-3 rounded-full hover:bg-zinc-800 transition-all shadow-lg"
               >
                 <Plus size={20} />
                 Add Employee
+              </button>
+            )}
+            {view === 'admins' && (
+              <button 
+                onClick={() => { setModalRole('admin'); setShowAddModal(true); }}
+                className="flex items-center gap-2 bg-zinc-900 text-white px-6 py-3 rounded-full hover:bg-zinc-800 transition-all shadow-lg"
+              >
+                <Plus size={20} />
+                Add Admin
               </button>
             )}
             {view === 'attendance' && (
@@ -325,28 +382,23 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
           </header>
 
           <AnimatePresence mode="wait">
-            {view === 'employees' && (
+            {view === 'admins' && (
               <motion.div 
-                key="employees"
+                key="admins"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
                 className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
               >
-                {employees.map(emp => (
-                  <div key={emp.id} className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200 flex items-center gap-4">
-                    <div className="w-16 h-16 rounded-full overflow-hidden bg-zinc-100 border-2 border-zinc-200">
-                      {emp.faceImage ? (
-                        <img src={emp.faceImage} alt={emp.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-zinc-400">
-                          <UserIcon size={32} />
-                        </div>
-                      )}
+                {admins.map(admin => (
+                  <div key={admin.id} className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200 flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-full overflow-hidden bg-zinc-900 flex items-center justify-center text-white">
+                      <Shield size={32} />
                     </div>
                     <div>
-                      <h4 className="font-bold text-zinc-900">{emp.name}</h4>
-                      <p className="text-sm text-zinc-500">{emp.email}</p>
+                      <h4 className="font-bold text-zinc-900">{admin.name}</h4>
+                      <p className="text-sm text-zinc-500">{admin.email}</p>
+                      <span className="text-[10px] font-bold uppercase tracking-widest bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded mt-1 inline-block">Administrator</span>
                     </div>
                   </div>
                 ))}
@@ -455,8 +507,8 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
         </div>
       </div>
 
-      {/* Add Employee Modal */}
-      {showAddEmployee && (
+      {/* Add User Modal */}
+      {showAddModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-6">
           <motion.div 
             initial={{ scale: 0.9, opacity: 0 }}
@@ -465,19 +517,36 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
           >
             <div className="p-8">
               <div className="flex items-center justify-between mb-8">
-                <h3 className="text-2xl font-bold text-zinc-900">Add New Employee</h3>
-                <button onClick={() => setShowAddEmployee(false)} className="p-2 hover:bg-zinc-100 rounded-full">
+                <h3 className="text-2xl font-bold text-zinc-900">Add New {modalRole === 'admin' ? 'Admin' : 'Employee'}</h3>
+                <button onClick={() => setShowAddModal(false)} className="p-2 hover:bg-zinc-100 rounded-full">
                   <XCircle size={24} className="text-zinc-400" />
                 </button>
               </div>
               
               <div className="space-y-6">
                 <div>
+                  <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Sign-in Method</label>
+                  <div className="flex bg-zinc-100 p-1 rounded-2xl">
+                    <button 
+                      onClick={() => setNewUser({ ...newUser, authMethod: 'email' })}
+                      className={cn("flex-1 py-2 rounded-xl text-sm font-bold transition-all", newUser.authMethod === 'email' ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500")}
+                    >
+                      Email/Password
+                    </button>
+                    <button 
+                      onClick={() => setNewUser({ ...newUser, authMethod: 'google' })}
+                      className={cn("flex-1 py-2 rounded-xl text-sm font-bold transition-all", newUser.authMethod === 'google' ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500")}
+                    >
+                      Google
+                    </button>
+                  </div>
+                </div>
+                <div>
                   <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Full Name</label>
                   <input 
                     type="text" 
-                    value={newEmployee.name}
-                    onChange={e => setNewEmployee({ ...newEmployee, name: e.target.value })}
+                    value={newUser.name}
+                    onChange={e => setNewUser({ ...newUser, name: e.target.value })}
                     className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-zinc-900 focus:border-transparent outline-none transition-all"
                     placeholder="John Doe"
                   />
@@ -486,54 +555,86 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                   <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Email Address</label>
                   <input 
                     type="email" 
-                    value={newEmployee.email}
-                    onChange={e => setNewEmployee({ ...newEmployee, email: e.target.value })}
+                    value={newUser.email}
+                    onChange={e => setNewUser({ ...newUser, email: e.target.value })}
                     className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-zinc-900 focus:border-transparent outline-none transition-all"
                     placeholder="john@example.com"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Password</label>
-                  <input 
-                    type="password" 
-                    value={newEmployee.password}
-                    onChange={e => setNewEmployee({ ...newEmployee, password: e.target.value })}
-                    className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-zinc-900 focus:border-transparent outline-none transition-all"
-                    placeholder="••••••••"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Face Registration</label>
-                  {newEmployee.faceImage ? (
-                    <div className="relative w-full aspect-video rounded-xl overflow-hidden border-2 border-zinc-200">
-                      <img src={newEmployee.faceImage} alt="Face" className="w-full h-full object-cover" />
-                      <button 
-                        onClick={() => setNewEmployee({ ...newEmployee, faceImage: '' })}
-                        className="absolute top-4 right-4 p-2 bg-white/90 rounded-full shadow-lg hover:bg-white transition-all"
-                      >
-                        <XCircle size={20} className="text-red-500" />
-                      </button>
+                {newUser.authMethod === 'email' && (
+                  <div>
+                    <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Password</label>
+                    <input 
+                      type="password" 
+                      value={newUser.password}
+                      onChange={e => setNewUser({ ...newUser, password: e.target.value })}
+                      className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-zinc-900 focus:border-transparent outline-none transition-all"
+                      placeholder="••••••••"
+                    />
+                  </div>
+                )}
+
+                {modalRole === 'employee' && (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Employee Type</label>
+                        <select 
+                          value={newUser.employeeType}
+                          onChange={e => setNewUser({ ...newUser, employeeType: e.target.value as any })}
+                          className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-zinc-900 focus:border-transparent outline-none transition-all"
+                        >
+                          <option value="regular">Regular</option>
+                          <option value="intern">Intern</option>
+                        </select>
+                      </div>
+                      {newUser.employeeType === 'intern' && (
+                        <div>
+                          <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Required Hours</label>
+                          <input 
+                            type="number" 
+                            value={newUser.requiredHours}
+                            onChange={e => setNewUser({ ...newUser, requiredHours: parseInt(e.target.value) || 0 })}
+                            className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-zinc-900 focus:border-transparent outline-none transition-all"
+                            placeholder="150"
+                          />
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <Camera onCapture={img => setNewEmployee({ ...newEmployee, faceImage: img })} />
-                  )}
-                </div>
+                    <div>
+                      <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Face Registration</label>
+                      {newUser.faceImage ? (
+                        <div className="relative w-full aspect-video rounded-xl overflow-hidden border-2 border-zinc-200">
+                          <img src={newUser.faceImage} alt="Face" className="w-full h-full object-cover" />
+                          <button 
+                            onClick={() => setNewUser({ ...newUser, faceImage: '' })}
+                            className="absolute top-4 right-4 p-2 bg-white/90 rounded-full shadow-lg hover:bg-white transition-all"
+                          >
+                            <XCircle size={20} className="text-red-500" />
+                          </button>
+                        </div>
+                      ) : (
+                        <Camera onCapture={img => setNewUser({ ...newUser, faceImage: img })} />
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="mt-10 flex gap-4">
                 <button 
-                  onClick={() => setShowAddEmployee(false)}
+                  onClick={() => setShowAddModal(false)}
                   className="flex-1 px-6 py-4 rounded-2xl border border-zinc-200 font-bold text-zinc-500 hover:bg-zinc-50 transition-all"
                 >
                   Cancel
                 </button>
                 <button 
-                  onClick={handleCreateEmployee}
+                  onClick={handleCreateUser}
                   disabled={creating}
                   className="flex-1 px-6 py-4 rounded-2xl bg-zinc-900 text-white font-bold hover:bg-zinc-800 transition-all shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {creating && <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-                  Create Account
+                  Create {modalRole === 'admin' ? 'Admin' : 'Account'}
                 </button>
               </div>
             </div>
@@ -821,8 +922,23 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
       const result = await signInWithPopup(auth, googleProvider);
       const userEmail = result.user.email;
       
-      // Check if user exists in Firestore
-      const userDoc = await getDoc(doc(db, 'users', result.user.uid));
+      // 1. Try to find by UID
+      let userDoc = await getDoc(doc(db, 'users', result.user.uid));
+      
+      // 2. If not found, try to find by email (for pre-created users)
+      if (!userDoc.exists() && userEmail) {
+        const q = query(collection(db, 'users'), where('email', '==', userEmail));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          const pendingDoc = querySnapshot.docs[0];
+          // Transfer data to UID-based document
+          const userData = pendingDoc.data();
+          await setDoc(doc(db, 'users', result.user.uid), userData);
+          // Optionally delete the pending doc
+          // await deleteDoc(pendingDoc.ref);
+          userDoc = await getDoc(doc(db, 'users', result.user.uid));
+        }
+      }
       
       if (userDoc.exists()) {
         const userData = { id: userDoc.id, ...userDoc.data() } as User;
@@ -832,7 +948,8 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
         const adminData = {
           name: result.user.displayName || 'Admin',
           email: userEmail || '',
-          role: 'admin' as const
+          role: 'admin' as const,
+          authMethod: 'google' as const
         };
         await setDoc(doc(db, 'users', result.user.uid), adminData);
         onLogin({ id: result.user.uid, ...adminData });
@@ -857,7 +974,20 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
       const result = await signInWithEmailAndPassword(auth, email, password);
       const userEmail = result.user.email;
       
-      const userDoc = await getDoc(doc(db, 'users', result.user.uid));
+      // Try to find by UID
+      let userDoc = await getDoc(doc(db, 'users', result.user.uid));
+      
+      // If not found, try to find by email (for pre-created users)
+      if (!userDoc.exists() && userEmail) {
+        const q = query(collection(db, 'users'), where('email', '==', userEmail));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          const pendingDoc = querySnapshot.docs[0];
+          const userData = pendingDoc.data();
+          await setDoc(doc(db, 'users', result.user.uid), userData);
+          userDoc = await getDoc(doc(db, 'users', result.user.uid));
+        }
+      }
       
       if (userDoc.exists()) {
         const userData = { id: userDoc.id, ...userDoc.data() } as User;
@@ -867,7 +997,8 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
         const adminData = {
           name: 'Admin',
           email: userEmail || '',
-          role: 'admin' as const
+          role: 'admin' as const,
+          authMethod: 'email' as const
         };
         await setDoc(doc(db, 'users', result.user.uid), adminData);
         onLogin({ id: result.user.uid, ...adminData });
