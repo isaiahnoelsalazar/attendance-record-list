@@ -21,7 +21,9 @@ import {
   Edit2,
   Trash2,
   Upload,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Menu,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths, isToday, parseISO } from 'date-fns';
@@ -65,6 +67,36 @@ function cn(...inputs: ClassValue[]) {
 import { User, AttendanceRecord, GapReason, verifyFace } from './types';
 
 // Components
+const compressImage = (base64Str: string, maxWidth = 400, maxHeight = 400): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = base64Str;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+
+      if (width > height) {
+        if (width > maxWidth) {
+          height *= maxWidth / width;
+          width = maxWidth;
+        }
+      } else {
+        if (height > maxHeight) {
+          width *= maxHeight / height;
+          height = maxHeight;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx?.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', 0.7));
+    };
+  });
+};
+
 const Camera = ({ onCapture, registeredFace }: { onCapture: (img: string) => void, registeredFace?: string }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -84,7 +116,8 @@ const Camera = ({ onCapture, registeredFace }: { onCapture: (img: string) => voi
       const context = canvasRef.current.getContext('2d');
       if (context) {
         context.drawImage(videoRef.current, 0, 0, 640, 480);
-        const img = canvasRef.current.toDataURL('image/jpeg');
+        const rawImg = canvasRef.current.toDataURL('image/jpeg', 0.7);
+        const img = await compressImage(rawImg);
         
         if (registeredFace) {
           setIsVerifying(true);
@@ -103,7 +136,7 @@ const Camera = ({ onCapture, registeredFace }: { onCapture: (img: string) => voi
   };
 
   return (
-    <div className="flex flex-col items-center gap-4 bg-white p-6 rounded-2xl shadow-xl border border-zinc-200">
+    <div className="flex flex-col items-center gap-4 bg-white p-4 sm:p-6 rounded-2xl shadow-xl border border-zinc-200">
       <div className="relative w-full max-w-md aspect-video bg-zinc-100 rounded-xl overflow-hidden border-2 border-zinc-300">
         <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
         <canvas ref={canvasRef} width={640} height={480} className="hidden" />
@@ -138,21 +171,21 @@ const Calendar = ({ records, userId }: { records: AttendanceRecord[], userId: st
   const userRecords = records.filter(r => r.userId === userId);
 
   return (
-    <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200">
+    <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-zinc-200">
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-xl font-semibold text-zinc-900">{format(currentMonth, 'MMMM yyyy')}</h3>
+        <h3 className="text-lg sm:text-xl font-semibold text-zinc-900">{format(currentMonth, 'MMMM yyyy')}</h3>
         <div className="flex gap-2">
           <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
-            <ChevronLeft size={20} />
+            <ChevronLeft size={18} className="sm:w-5 sm:h-5" />
           </button>
           <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
-            <ChevronRight size={20} />
+            <ChevronRight size={18} className="sm:w-5 sm:h-5" />
           </button>
         </div>
       </div>
-      <div className="grid grid-cols-7 gap-2">
+      <div className="grid grid-cols-7 gap-1 sm:gap-2">
         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-          <div key={day} className="text-center text-xs font-bold text-zinc-400 uppercase tracking-wider py-2">{day}</div>
+          <div key={day} className="text-center text-[10px] sm:text-xs font-bold text-zinc-400 uppercase tracking-wider py-2">{day}</div>
         ))}
         {Array.from({ length: monthStart.getDay() }).map((_, i) => (
           <div key={`empty-${i}`} className="aspect-square" />
@@ -163,16 +196,16 @@ const Calendar = ({ records, userId }: { records: AttendanceRecord[], userId: st
             <div 
               key={day.toISOString()} 
               className={cn(
-                "aspect-square rounded-xl border border-zinc-100 p-2 flex flex-col items-center justify-center gap-1 transition-all",
+                "aspect-square rounded-lg sm:rounded-xl border border-zinc-100 p-1 sm:p-2 flex flex-col items-center justify-center gap-0.5 sm:gap-1 transition-all",
                 isToday(day) ? "bg-zinc-50 border-zinc-300" : "hover:bg-zinc-50"
               )}
             >
-              <span className={cn("text-sm font-medium", isToday(day) ? "text-zinc-900" : "text-zinc-500")}>{format(day, 'd')}</span>
+              <span className={cn("text-xs sm:text-sm font-medium", isToday(day) ? "text-zinc-900" : "text-zinc-500")}>{format(day, 'd')}</span>
               {record && (
-                <div className="flex gap-1">
-                  {record.timeIn && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Timed In" />}
-                  {record.timeOut && <div className="w-1.5 h-1.5 rounded-full bg-blue-500" title="Timed Out" />}
-                  {record.status === 'missed' && <div className="w-1.5 h-1.5 rounded-full bg-amber-500" title="Missed Record" />}
+                <div className="flex gap-0.5 sm:gap-1">
+                  {record.timeIn && <div className="w-1 sm:w-1.5 h-1 sm:h-1.5 rounded-full bg-emerald-500" title="Timed In" />}
+                  {record.timeOut && <div className="w-1 sm:w-1.5 h-1 sm:h-1.5 rounded-full bg-blue-500" title="Timed Out" />}
+                  {record.status === 'missed' && <div className="w-1 sm:w-1.5 h-1 sm:h-1.5 rounded-full bg-amber-500" title="Missed Record" />}
                 </div>
               )}
             </div>
@@ -193,6 +226,7 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
   const [modalRole, setModalRole] = useState<'employee' | 'admin'>('employee');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [statusFilter, setStatusFilter] = useState<'all' | 'present' | 'absent' | 'timed-out'>('all');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [newUser, setNewUser] = useState({ 
     name: '', 
     email: '', 
@@ -204,6 +238,10 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
     requiredHours: 0
   });
   const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [view]);
 
   useEffect(() => {
     const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
@@ -318,13 +356,14 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        alert("File size too large. Please upload an image smaller than 2MB.");
+      if (file.size > 5 * 1024 * 1024) {
+        alert("File size too large. Please upload an image smaller than 5MB.");
         return;
       }
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setNewUser({ ...newUser, faceImage: reader.result as string });
+      reader.onloadend = async () => {
+        const compressed = await compressImage(reader.result as string);
+        setNewUser({ ...newUser, faceImage: compressed });
       };
       reader.readAsDataURL(file);
     }
@@ -362,6 +401,14 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
   const employees = users.filter(u => u.role === 'employee');
   const admins = users.filter(u => u.role === 'admin');
 
+  const navItems = [
+    { id: 'overview', label: 'Overview', icon: TableIcon },
+    { id: 'employees', label: 'Employees', icon: UserPlus },
+    { id: 'admins', label: 'Admins', icon: Shield },
+    { id: 'attendance', label: 'Attendance', icon: CalendarIcon },
+    { id: 'gaps', label: 'Gap Requests', icon: AlertCircle },
+  ];
+
   const handleExport = () => {
     const data = records.map(r => {
       const emp = employees.find(e => e.id === r.userId);
@@ -388,55 +435,72 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50 flex">
-      {/* Sidebar */}
-      <div className="w-64 bg-white border-r border-zinc-200 p-6 flex flex-col gap-8">
+    <div className="min-h-screen bg-zinc-50 flex flex-col lg:flex-row">
+      {/* Mobile Header */}
+      <div className="lg:hidden bg-white border-b border-zinc-200 p-4 flex items-center justify-between sticky top-0 z-40">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-zinc-900 rounded-xl flex items-center justify-center text-white">
             <Shield size={24} />
           </div>
-          <h1 className="font-bold text-zinc-900 leading-tight">Attendance<br/>Admin</h1>
+          <h1 className="font-bold text-zinc-900">Admin Panel</h1>
         </div>
-        
+        <button 
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="p-2 hover:bg-zinc-100 rounded-xl transition-colors"
+        >
+          {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+        </button>
+      </div>
+
+      {/* Sidebar Overlay */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="fixed inset-0 bg-black/50 z-40 lg:hidden backdrop-blur-sm"
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Sidebar */}
+      <div className={cn(
+        "fixed inset-y-0 left-0 w-72 bg-white border-r border-zinc-200 flex flex-col p-6 z-50 lg:sticky lg:h-screen transition-transform duration-300 lg:translate-x-0",
+        isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+      )}>
+        <div className="hidden lg:flex items-center gap-4 mb-10 px-2">
+          <div className="w-12 h-12 bg-zinc-900 rounded-2xl flex items-center justify-center text-white shadow-xl">
+            <Shield size={28} />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-zinc-900">Admin Panel</h1>
+            <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Attendance System</p>
+          </div>
+        </div>
+
         <nav className="flex flex-col gap-2">
-          <button 
-            onClick={() => setView('overview')}
-            className={cn("flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium", view === 'overview' ? "bg-zinc-900 text-white shadow-lg" : "text-zinc-500 hover:bg-zinc-100")}
-          >
-            <TableIcon size={20} />
-            Overview
-          </button>
-          <button 
-            onClick={() => setView('employees')}
-            className={cn("flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium", view === 'employees' ? "bg-zinc-900 text-white shadow-lg" : "text-zinc-500 hover:bg-zinc-100")}
-          >
-            <UserPlus size={20} />
-            Employees
-          </button>
-          <button 
-            onClick={() => setView('admins')}
-            className={cn("flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium", view === 'admins' ? "bg-zinc-900 text-white shadow-lg" : "text-zinc-500 hover:bg-zinc-100")}
-          >
-            <Shield size={20} />
-            Admins
-          </button>
-          <button 
-            onClick={() => setView('attendance')}
-            className={cn("flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium", view === 'attendance' ? "bg-zinc-900 text-white shadow-lg" : "text-zinc-500 hover:bg-zinc-100")}
-          >
-            <CalendarIcon size={20} />
-            Attendance
-          </button>
-          <button 
-            onClick={() => setView('gaps')}
-            className={cn("flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium", view === 'gaps' ? "bg-zinc-900 text-white shadow-lg" : "text-zinc-500 hover:bg-zinc-100")}
-          >
-            <AlertCircle size={20} />
-            Gap Requests
-          </button>
+          {navItems.map(item => (
+            <button 
+              key={item.id}
+              onClick={() => setView(item.id as any)}
+              className={cn(
+                "flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium", 
+                view === item.id ? "bg-zinc-900 text-white shadow-lg" : "text-zinc-500 hover:bg-zinc-100"
+              )}
+            >
+              <item.icon size={20} />
+              {item.label}
+            </button>
+          ))}
         </nav>
 
-        <div className="mt-auto">
+        <div className="mt-auto pt-6 border-t border-zinc-100">
+          <div className="px-4 py-3 mb-4 bg-zinc-50 rounded-xl">
+            <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest mb-1">Logged in as</p>
+            <p className="text-sm font-bold text-zinc-900 truncate">{user.name}</p>
+          </div>
           <button onClick={onLogout} className="flex items-center gap-3 px-4 py-3 rounded-xl text-red-500 hover:bg-red-50 transition-all font-medium w-full">
             <LogOut size={20} />
             Logout
@@ -445,40 +509,42 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 p-10 overflow-auto">
+      <div className="flex-1 p-4 md:p-10 overflow-auto">
         <div className="max-w-6xl mx-auto">
-          <header className="flex items-center justify-between mb-10">
+          <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-10">
             <div>
-              <h2 className="text-3xl font-bold text-zinc-900 capitalize">{view}</h2>
-              <p className="text-zinc-500">Manage your organization's attendance system</p>
+              <h2 className="text-2xl md:text-3xl font-bold text-zinc-900 capitalize">{view}</h2>
+              <p className="text-sm md:text-base text-zinc-500">Manage your organization's attendance system</p>
             </div>
-            {view === 'employees' && (
-              <button 
-                onClick={() => { setModalRole('employee'); setShowAddModal(true); }}
-                className="flex items-center gap-2 bg-zinc-900 text-white px-6 py-3 rounded-full hover:bg-zinc-800 transition-all shadow-lg"
-              >
-                <Plus size={20} />
-                Add Employee
-              </button>
-            )}
-            {view === 'admins' && (
-              <button 
-                onClick={() => { setModalRole('admin'); setShowAddModal(true); }}
-                className="flex items-center gap-2 bg-zinc-900 text-white px-6 py-3 rounded-full hover:bg-zinc-800 transition-all shadow-lg"
-              >
-                <Plus size={20} />
-                Add Admin
-              </button>
-            )}
-            {view === 'attendance' && (
-              <button 
-                onClick={handleExport}
-                className="flex items-center gap-2 bg-emerald-600 text-white px-6 py-3 rounded-full hover:bg-emerald-700 transition-all shadow-lg"
-              >
-                <Download size={20} />
-                Export Excel
-              </button>
-            )}
+            <div className="flex gap-3">
+              {view === 'employees' && (
+                <button 
+                  onClick={() => { setModalRole('employee'); setShowAddModal(true); }}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-zinc-900 text-white px-6 py-3 rounded-full hover:bg-zinc-800 transition-all shadow-lg font-bold"
+                >
+                  <Plus size={20} />
+                  Add Employee
+                </button>
+              )}
+              {view === 'admins' && (
+                <button 
+                  onClick={() => { setModalRole('admin'); setShowAddModal(true); }}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-zinc-900 text-white px-6 py-3 rounded-full hover:bg-zinc-800 transition-all shadow-lg font-bold"
+                >
+                  <Plus size={20} />
+                  Add Admin
+                </button>
+              )}
+              {view === 'attendance' && (
+                <button 
+                  onClick={handleExport}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-emerald-600 text-white px-6 py-3 rounded-full hover:bg-emerald-700 transition-all shadow-lg font-bold"
+                >
+                  <Download size={20} />
+                  Export Excel
+                </button>
+              )}
+            </div>
           </header>
 
           <AnimatePresence mode="wait">
@@ -545,21 +611,21 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                 {/* Calendar & Daily List */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                   <div className="lg:col-span-2">
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200">
+                    <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-zinc-200">
                       <div className="flex items-center justify-between mb-6">
-                        <h3 className="text-xl font-bold text-zinc-900">Attendance Calendar</h3>
+                        <h3 className="text-lg sm:text-xl font-bold text-zinc-900">Attendance Calendar</h3>
                         <div className="flex gap-2">
                           <button onClick={() => setSelectedDate(subMonths(selectedDate, 1))} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
-                            <ChevronLeft size={20} />
+                            <ChevronLeft size={18} className="sm:w-5 sm:h-5" />
                           </button>
                           <button onClick={() => setSelectedDate(addMonths(selectedDate, 1))} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
-                            <ChevronRight size={20} />
+                            <ChevronRight size={18} className="sm:w-5 sm:h-5" />
                           </button>
                         </div>
                       </div>
-                      <div className="grid grid-cols-7 gap-2">
+                      <div className="grid grid-cols-7 gap-1 sm:gap-2">
                         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                          <div key={day} className="text-center text-xs font-bold text-zinc-400 uppercase tracking-wider py-2">{day}</div>
+                          <div key={day} className="text-center text-[10px] sm:text-xs font-bold text-zinc-400 uppercase tracking-wider py-2">{day}</div>
                         ))}
                         {Array.from({ length: startOfMonth(selectedDate).getDay() }).map((_, i) => (
                           <div key={`empty-${i}`} className="aspect-square" />
@@ -574,12 +640,12 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                               key={day.toISOString()} 
                               onClick={() => setSelectedDate(day)}
                               className={cn(
-                                "aspect-square rounded-xl border p-2 flex flex-col items-center justify-center gap-1 transition-all relative",
+                                "aspect-square rounded-lg sm:rounded-xl border p-1 sm:p-2 flex flex-col items-center justify-center gap-0.5 sm:gap-1 transition-all relative",
                                 isSelected ? "bg-zinc-900 border-zinc-900 text-white shadow-lg" : "border-zinc-100 hover:bg-zinc-50 text-zinc-500",
                                 isToday(day) && !isSelected && "border-zinc-300 bg-zinc-50"
                               )}
                             >
-                              <span className="text-sm font-bold">{format(day, 'd')}</span>
+                              <span className="text-xs sm:text-sm font-bold">{format(day, 'd')}</span>
                               <div className="flex gap-0.5">
                                 {dayRecords.some(r => r.status === 'present') && (
                                   <div className={cn("w-1 h-1 rounded-full", isSelected ? "bg-emerald-400" : "bg-emerald-500")} />
@@ -611,7 +677,7 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                     </div>
                   </div>
                   <div className="lg:col-span-1">
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200 h-full flex flex-col">
+                    <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-zinc-200 h-full flex flex-col">
                       <div className="flex items-center justify-between mb-6">
                         <h3 className="text-lg font-bold text-zinc-900">
                           {format(selectedDate, 'MMM d, yyyy')}
@@ -805,9 +871,9 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                 exit={{ opacity: 0, y: -20 }}
                 className="flex flex-col gap-8"
               >
-                <div className="bg-white rounded-2xl shadow-sm border border-zinc-200 overflow-hidden">
-                  <table className="w-full text-left">
-                    <thead className="bg-zinc-50 border-bottom border-zinc-200">
+                <div className="bg-white rounded-2xl shadow-sm border border-zinc-200 overflow-x-auto scrollbar-hide">
+                  <table className="w-full text-left min-w-[800px]">
+                    <thead className="bg-zinc-50 border-b border-zinc-200">
                       <tr>
                         <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase tracking-wider">Employee</th>
                         <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase tracking-wider">Date</th>
@@ -901,15 +967,15 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
 
       {/* Add User Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-6">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-6">
           <motion.div 
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full overflow-hidden"
+            initial={{ y: "100%", opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl max-w-2xl w-full overflow-hidden max-h-[90vh] flex flex-col"
           >
-            <div className="p-8">
+            <div className="p-6 sm:p-8 overflow-y-auto">
               <div className="flex items-center justify-between mb-8">
-                <h3 className="text-2xl font-bold text-zinc-900">
+                <h3 className="text-xl sm:text-2xl font-bold text-zinc-900">
                   {editingUser ? 'Edit' : 'Add New'} {modalRole === 'admin' ? 'Admin' : 'Employee'}
                 </h3>
                 <button onClick={() => { setShowAddModal(false); setEditingUser(null); }} className="p-2 hover:bg-zinc-100 rounded-full">
@@ -919,7 +985,7 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
               
               <div className="space-y-6">
                 <div>
-                  <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Sign-in Method</label>
+                  <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Sign-in Method</label>
                   <div className="flex bg-zinc-100 p-1 rounded-2xl">
                     <button 
                       onClick={() => setNewUser({ ...newUser, authMethod: 'email' })}
@@ -935,28 +1001,30 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                     </button>
                   </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Username / User ID</label>
-                  <input 
-                    type="text" 
-                    value={newUser.username}
-                    onChange={e => setNewUser({ ...newUser, username: e.target.value.toLowerCase().replace(/\s+/g, '') })}
-                    className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-zinc-900 focus:border-transparent outline-none transition-all"
-                    placeholder="johndoe123"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Username / User ID</label>
+                    <input 
+                      type="text" 
+                      value={newUser.username}
+                      onChange={e => setNewUser({ ...newUser, username: e.target.value.toLowerCase().replace(/\s+/g, '') })}
+                      className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-zinc-900 focus:border-transparent outline-none transition-all"
+                      placeholder="johndoe123"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Full Name</label>
+                    <input 
+                      type="text" 
+                      value={newUser.name}
+                      onChange={e => setNewUser({ ...newUser, name: e.target.value })}
+                      className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-zinc-900 focus:border-transparent outline-none transition-all"
+                      placeholder="John Doe"
+                    />
+                  </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Full Name</label>
-                  <input 
-                    type="text" 
-                    value={newUser.name}
-                    onChange={e => setNewUser({ ...newUser, name: e.target.value })}
-                    className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-zinc-900 focus:border-transparent outline-none transition-all"
-                    placeholder="John Doe"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Email Address</label>
+                  <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Email Address</label>
                   <input 
                     type="email" 
                     value={newUser.email}
@@ -967,7 +1035,7 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                 </div>
                 {newUser.authMethod === 'email' && (
                   <div>
-                    <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Password</label>
+                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Password</label>
                     <input 
                       type="password" 
                       value={newUser.password}
@@ -980,9 +1048,9 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
 
                 {modalRole === 'employee' && (
                   <>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Employee Type</label>
+                        <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Employee Type</label>
                         <select 
                           value={newUser.employeeType}
                           onChange={e => setNewUser({ ...newUser, employeeType: e.target.value as any })}
@@ -994,7 +1062,7 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                       </div>
                       {newUser.employeeType === 'intern' && (
                         <div>
-                          <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Required Hours</label>
+                          <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Required Hours</label>
                           <input 
                             type="number" 
                             value={newUser.requiredHours}
@@ -1006,7 +1074,7 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                       )}
                     </div>
                     <div>
-                      <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Face Registration</label>
+                      <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Face Registration</label>
                       {newUser.faceImage ? (
                         <div className="relative w-full aspect-video rounded-xl overflow-hidden border-2 border-zinc-200">
                           <img src={newUser.faceImage} alt="Face" className="w-full h-full object-cover" />
@@ -1023,15 +1091,15 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                           
                           <div className="relative flex items-center py-2">
                             <div className="flex-grow border-t border-zinc-200"></div>
-                            <span className="flex-shrink mx-4 text-xs font-bold text-zinc-400 uppercase tracking-widest">OR</span>
+                            <span className="flex-shrink mx-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">OR</span>
                             <div className="flex-grow border-t border-zinc-200"></div>
                           </div>
 
-                          <label className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-zinc-200 rounded-2xl hover:bg-zinc-50 transition-all cursor-pointer group">
+                          <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-zinc-200 rounded-2xl hover:bg-zinc-50 transition-all cursor-pointer group">
                             <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                              <Upload className="w-8 h-8 text-zinc-400 group-hover:text-zinc-600 mb-2" />
-                              <p className="text-sm text-zinc-500 group-hover:text-zinc-700 font-medium">Click to upload face image</p>
-                              <p className="text-xs text-zinc-400 mt-1">PNG, JPG or JPEG (MAX. 2MB)</p>
+                              <Upload className="w-6 h-6 text-zinc-400 group-hover:text-zinc-600 mb-2" />
+                              <p className="text-xs text-zinc-500 group-hover:text-zinc-700 font-medium">Click to upload face image</p>
+                              <p className="text-[10px] text-zinc-400 mt-1">PNG, JPG or JPEG (MAX. 2MB)</p>
                             </div>
                             <input 
                               type="file" 
@@ -1047,20 +1115,20 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                 )}
               </div>
 
-              <div className="mt-10 flex gap-4">
+              <div className="mt-10 flex flex-col sm:flex-row gap-4 pb-6 sm:pb-0">
                 <button 
                   onClick={() => setShowAddModal(false)}
-                  className="flex-1 px-6 py-4 rounded-2xl border border-zinc-200 font-bold text-zinc-500 hover:bg-zinc-50 transition-all"
+                  className="order-2 sm:order-1 flex-1 px-6 py-4 rounded-2xl border border-zinc-200 font-bold text-zinc-500 hover:bg-zinc-50 transition-all"
                 >
                   Cancel
                 </button>
                 <button 
                   onClick={handleCreateUser}
                   disabled={creating}
-                  className="flex-1 px-6 py-4 rounded-2xl bg-zinc-900 text-white font-bold hover:bg-zinc-800 transition-all shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="order-1 sm:order-2 flex-1 px-6 py-4 rounded-2xl bg-zinc-900 text-white font-bold hover:bg-zinc-800 transition-all shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {creating && <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-                  Create {modalRole === 'admin' ? 'Admin' : 'Account'}
+                  {editingUser ? 'Save Changes' : `Create ${modalRole === 'admin' ? 'Admin' : 'Account'}`}
                 </button>
               </div>
             </div>
@@ -1147,37 +1215,38 @@ const EmployeeDashboard = ({ user, onLogout }: { user: User, onLogout: () => voi
   const todayRecord = records.find(r => r.date === format(new Date(), 'yyyy-MM-dd'));
 
   return (
-    <div className="min-h-screen bg-zinc-50 p-6 md:p-10">
+    <div className="min-h-screen bg-zinc-50 p-4 sm:p-6 md:p-10">
       <div className="max-w-6xl mx-auto">
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
+        <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-8 md:mb-12">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-2xl bg-zinc-900 flex items-center justify-center text-white shadow-xl">
-              <UserIcon size={32} />
+            <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-2xl bg-zinc-900 flex items-center justify-center text-white shadow-xl">
+              <UserIcon size={28} className="sm:hidden" />
+              <UserIcon size={32} className="hidden sm:block" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-zinc-900">Welcome, {user.name}</h1>
-              <p className="text-zinc-500 font-medium">Employee Dashboard</p>
+              <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-zinc-900">Welcome, {user.name}</h1>
+              <p className="text-sm sm:text-base text-zinc-500 font-medium">Employee Dashboard</p>
             </div>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <button 
               onClick={() => { setCameraMode('in'); setShowCamera(true); }}
               disabled={!!todayRecord?.timeIn}
-              className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-emerald-600 text-white px-8 py-4 rounded-2xl hover:bg-emerald-700 transition-all shadow-lg disabled:opacity-50 font-bold"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-emerald-600 text-white px-4 sm:px-8 py-3 sm:py-4 rounded-2xl hover:bg-emerald-700 transition-all shadow-lg disabled:opacity-50 font-bold text-sm sm:text-base"
             >
-              <Clock size={20} />
+              <Clock size={18} />
               Time In
             </button>
             <button 
               onClick={() => { setCameraMode('out'); setShowCamera(true); }}
               disabled={!todayRecord?.timeIn || !!todayRecord?.timeOut}
-              className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-blue-600 text-white px-8 py-4 rounded-2xl hover:bg-blue-700 transition-all shadow-lg disabled:opacity-50 font-bold"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-blue-600 text-white px-4 sm:px-8 py-3 sm:py-4 rounded-2xl hover:bg-blue-700 transition-all shadow-lg disabled:opacity-50 font-bold text-sm sm:text-base"
             >
-              <LogOut size={20} />
+              <LogOut size={18} />
               Time Out
             </button>
-            <button onClick={onLogout} className="p-4 bg-white border border-zinc-200 text-zinc-500 rounded-2xl hover:bg-zinc-50 transition-all shadow-sm">
-              <LogOut size={20} />
+            <button onClick={onLogout} className="p-3 sm:p-4 bg-white border border-zinc-200 text-zinc-500 rounded-2xl hover:bg-zinc-50 transition-all shadow-sm">
+              <LogOut size={18} />
             </button>
           </div>
         </header>
@@ -1185,8 +1254,8 @@ const EmployeeDashboard = ({ user, onLogout }: { user: User, onLogout: () => voi
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Stats */}
           <div className="lg:col-span-1 flex flex-col gap-6">
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-zinc-200">
-              <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-6">Today's Status</h3>
+            <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-zinc-200">
+              <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-6">Today's Status</h3>
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -1209,7 +1278,7 @@ const EmployeeDashboard = ({ user, onLogout }: { user: User, onLogout: () => voi
               </div>
             </div>
 
-            <div className="bg-zinc-900 p-8 rounded-3xl shadow-xl text-white">
+            <div className="bg-zinc-900 p-6 sm:p-8 rounded-3xl shadow-xl text-white">
               <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-4">Attendance Summary</h3>
               <div className="text-4xl font-bold mb-2">{records.length}</div>
               <p className="text-zinc-400 text-sm">Total days recorded this month</p>
@@ -1218,17 +1287,17 @@ const EmployeeDashboard = ({ user, onLogout }: { user: User, onLogout: () => voi
 
           {/* Main Views */}
           <div className="lg:col-span-2 flex flex-col gap-6">
-            <div className="flex bg-white p-1.5 rounded-2xl shadow-sm border border-zinc-200 w-fit">
+            <div className="flex bg-white p-1.5 rounded-2xl shadow-sm border border-zinc-200 w-full sm:w-fit">
               <button 
                 onClick={() => setView('calendar')}
-                className={cn("flex items-center gap-2 px-6 py-3 rounded-xl transition-all font-bold text-sm", view === 'calendar' ? "bg-zinc-900 text-white shadow-lg" : "text-zinc-500 hover:bg-zinc-50")}
+                className={cn("flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl transition-all font-bold text-sm", view === 'calendar' ? "bg-zinc-900 text-white shadow-lg" : "text-zinc-500 hover:bg-zinc-50")}
               >
                 <CalendarIcon size={18} />
                 Calendar
               </button>
               <button 
                 onClick={() => setView('table')}
-                className={cn("flex items-center gap-2 px-6 py-3 rounded-xl transition-all font-bold text-sm", view === 'table' ? "bg-zinc-900 text-white shadow-lg" : "text-zinc-500 hover:bg-zinc-50")}
+                className={cn("flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl transition-all font-bold text-sm", view === 'table' ? "bg-zinc-900 text-white shadow-lg" : "text-zinc-500 hover:bg-zinc-50")}
               >
                 <TableIcon size={18} />
                 Table
@@ -1242,25 +1311,25 @@ const EmployeeDashboard = ({ user, onLogout }: { user: User, onLogout: () => voi
                 </motion.div>
               ) : (
                 <motion.div key="table" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-                  <div className="bg-white rounded-2xl shadow-sm border border-zinc-200 overflow-hidden">
-                    <table className="w-full text-left">
-                      <thead className="bg-zinc-50 border-bottom border-zinc-200">
+                  <div className="bg-white rounded-2xl shadow-sm border border-zinc-200 overflow-x-auto scrollbar-hide">
+                    <table className="w-full text-left min-w-[800px]">
+                      <thead className="bg-zinc-50 border-b border-zinc-200">
                         <tr>
-                          <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase tracking-wider">Date</th>
-                          <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase tracking-wider">Time In</th>
-                          <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase tracking-wider">Time Out</th>
-                          <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase tracking-wider">Status</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Date</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Time In</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Time Out</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-100">
                         {records.map(r => (
                           <tr key={r.id} className="hover:bg-zinc-50 transition-colors">
-                            <td className="px-6 py-4 font-medium text-zinc-900">{r.date}</td>
-                            <td className="px-6 py-4 text-zinc-500">{r.timeIn ? format(parseISO(r.timeIn), 'hh:mm a') : '-'}</td>
-                            <td className="px-6 py-4 text-zinc-500">{r.timeOut ? format(parseISO(r.timeOut), 'hh:mm a') : '-'}</td>
+                            <td className="px-6 py-4 font-medium text-zinc-900 text-sm">{r.date}</td>
+                            <td className="px-6 py-4 text-zinc-500 text-sm">{r.timeIn ? format(parseISO(r.timeIn), 'hh:mm a') : '-'}</td>
+                            <td className="px-6 py-4 text-zinc-500 text-sm">{r.timeOut ? format(parseISO(r.timeOut), 'hh:mm a') : '-'}</td>
                             <td className="px-6 py-4">
                               <span className={cn(
-                                "px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider",
+                                "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
                                 r.status === 'present' ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
                               )}>
                                 {r.status}
@@ -1510,19 +1579,20 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-zinc-50 flex items-center justify-center p-4 sm:p-6">
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-white p-10 rounded-3xl shadow-2xl max-w-md w-full border border-zinc-200"
+        className="bg-white p-6 sm:p-10 rounded-3xl shadow-2xl max-w-md w-full border border-zinc-200"
       >
-        <div className="flex flex-col items-center text-center gap-6 mb-10">
-          <div className="w-20 h-20 bg-zinc-900 rounded-3xl flex items-center justify-center text-white shadow-2xl">
-            <Clock size={48} />
+        <div className="flex flex-col items-center text-center gap-4 sm:gap-6 mb-8 sm:mb-10">
+          <div className="w-16 h-16 sm:w-20 sm:h-20 bg-zinc-900 rounded-3xl flex items-center justify-center text-white shadow-2xl">
+            <Clock size={40} className="sm:hidden" />
+            <Clock size={48} className="hidden sm:block" />
           </div>
           <div>
-            <h1 className="text-3xl font-bold text-zinc-900">Attendance System</h1>
-            <p className="text-zinc-500 mt-2">Sign in to your account</p>
+            <h1 className="text-2xl sm:text-3xl font-bold text-zinc-900">Attendance System</h1>
+            <p className="text-sm sm:text-base text-zinc-500 mt-2">Sign in to your account</p>
           </div>
         </div>
 
@@ -1534,7 +1604,7 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
             </div>
           )}
 
-          <div className="flex bg-zinc-100 p-1 rounded-2xl">
+          <div className="flex bg-zinc-100 p-1 rounded-2xl mb-6 sm:mb-8">
             <button 
               onClick={() => setLoginMode('google')}
               className={cn("flex-1 py-2 rounded-xl text-sm font-bold transition-all", loginMode === 'google' ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500")}
