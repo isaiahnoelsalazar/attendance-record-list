@@ -179,12 +179,14 @@ const Calendar = ({ records, userId }: { records: AttendanceRecord[], userId: st
 };
 
 const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => {
-  const [view, setView] = useState<'employees' | 'admins' | 'attendance' | 'gaps'>('employees');
+  const [view, setView] = useState<'overview' | 'employees' | 'admins' | 'attendance' | 'gaps'>('overview');
   const [users, setUsers] = useState<User[]>([]);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [gaps, setGaps] = useState<GapReason[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [modalRole, setModalRole] = useState<'employee' | 'admin'>('employee');
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [statusFilter, setStatusFilter] = useState<'all' | 'present' | 'absent' | 'timed-out'>('all');
   const [newUser, setNewUser] = useState({ 
     name: '', 
     email: '', 
@@ -307,6 +309,13 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
         
         <nav className="flex flex-col gap-2">
           <button 
+            onClick={() => setView('overview')}
+            className={cn("flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium", view === 'overview' ? "bg-zinc-900 text-white shadow-lg" : "text-zinc-500 hover:bg-zinc-100")}
+          >
+            <TableIcon size={20} />
+            Overview
+          </button>
+          <button 
             onClick={() => setView('employees')}
             className={cn("flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium", view === 'employees' ? "bg-zinc-900 text-white shadow-lg" : "text-zinc-500 hover:bg-zinc-100")}
           >
@@ -382,6 +391,227 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
           </header>
 
           <AnimatePresence mode="wait">
+            {view === 'overview' && (
+              <motion.div 
+                key="overview"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="flex flex-col gap-8"
+              >
+                {/* Stats Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200">
+                    <div className="flex items-center gap-4 mb-4">
+                      <div className="w-12 h-12 bg-zinc-100 rounded-xl flex items-center justify-center text-zinc-600">
+                        <UserIcon size={24} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-zinc-400 uppercase tracking-wider">Total People</p>
+                        <h4 className="text-2xl font-bold text-zinc-900">{users.length}</h4>
+                      </div>
+                    </div>
+                    <div className="flex gap-3 mt-1">
+                      <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest bg-zinc-50 px-2 py-0.5 rounded">{admins.length} Admins</span>
+                      <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest bg-zinc-50 px-2 py-0.5 rounded">{employees.length} Employees</span>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200">
+                    <div className="flex items-center gap-4 mb-4">
+                      <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
+                        <Clock size={24} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-zinc-400 uppercase tracking-wider">Present Today</p>
+                        <h4 className="text-2xl font-bold text-zinc-900">
+                          {records.filter(r => r.date === format(new Date(), 'yyyy-MM-dd') && r.timeIn && !r.timeOut).length}
+                        </h4>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      <p className="text-xs font-medium text-zinc-500">Currently clocked in</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200">
+                    <div className="flex items-center gap-4 mb-4">
+                      <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600">
+                        <LogOut size={24} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-zinc-400 uppercase tracking-wider">Timed Out Today</p>
+                        <h4 className="text-2xl font-bold text-zinc-900">
+                          {records.filter(r => r.date === format(new Date(), 'yyyy-MM-dd') && r.timeOut).length}
+                        </h4>
+                      </div>
+                    </div>
+                    <p className="text-xs font-medium text-zinc-500">Completed shifts today</p>
+                  </div>
+                </div>
+
+                {/* Calendar & Daily List */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  <div className="lg:col-span-2">
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200">
+                      <div className="flex items-center justify-between mb-6">
+                        <h3 className="text-xl font-bold text-zinc-900">Attendance Calendar</h3>
+                        <div className="flex gap-2">
+                          <button onClick={() => setSelectedDate(subMonths(selectedDate, 1))} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
+                            <ChevronLeft size={20} />
+                          </button>
+                          <button onClick={() => setSelectedDate(addMonths(selectedDate, 1))} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
+                            <ChevronRight size={20} />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-7 gap-2">
+                        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                          <div key={day} className="text-center text-xs font-bold text-zinc-400 uppercase tracking-wider py-2">{day}</div>
+                        ))}
+                        {Array.from({ length: startOfMonth(selectedDate).getDay() }).map((_, i) => (
+                          <div key={`empty-${i}`} className="aspect-square" />
+                        ))}
+                        {eachDayOfInterval({ start: startOfMonth(selectedDate), end: endOfMonth(selectedDate) }).map(day => {
+                          const dateStr = format(day, 'yyyy-MM-dd');
+                          const dayRecords = records.filter(r => r.date === dateStr);
+                          const isSelected = isSameDay(day, selectedDate);
+                          
+                          return (
+                            <button 
+                              key={day.toISOString()} 
+                              onClick={() => setSelectedDate(day)}
+                              className={cn(
+                                "aspect-square rounded-xl border p-2 flex flex-col items-center justify-center gap-1 transition-all relative",
+                                isSelected ? "bg-zinc-900 border-zinc-900 text-white shadow-lg" : "border-zinc-100 hover:bg-zinc-50 text-zinc-500",
+                                isToday(day) && !isSelected && "border-zinc-300 bg-zinc-50"
+                              )}
+                            >
+                              <span className="text-sm font-bold">{format(day, 'd')}</span>
+                              <div className="flex gap-0.5">
+                                {dayRecords.some(r => r.status === 'present') && (
+                                  <div className={cn("w-1 h-1 rounded-full", isSelected ? "bg-emerald-400" : "bg-emerald-500")} />
+                                )}
+                                {dayRecords.some(r => r.status === 'missed') && (
+                                  <div className={cn("w-1 h-1 rounded-full", isSelected ? "bg-amber-400" : "bg-amber-500")} />
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      
+                      {/* Calendar Legend */}
+                      <div className="mt-6 pt-6 border-t border-zinc-100 flex items-center gap-6">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                          <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Present</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-amber-500" />
+                          <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Missed/Absent</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-zinc-300" />
+                          <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">No Record</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="lg:col-span-1">
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200 h-full flex flex-col">
+                      <div className="flex items-center justify-between mb-6">
+                        <h3 className="text-lg font-bold text-zinc-900">
+                          {format(selectedDate, 'MMM d, yyyy')}
+                        </h3>
+                        <select 
+                          value={statusFilter}
+                          onChange={(e) => setStatusFilter(e.target.value as any)}
+                          className="text-xs font-bold border-none bg-zinc-100 rounded-lg px-2 py-1 focus:ring-0"
+                        >
+                          <option value="all">All</option>
+                          <option value="present">Present</option>
+                          <option value="absent">Absent</option>
+                          <option value="timed-out">Timed Out</option>
+                        </select>
+                      </div>
+                      
+                      <div className="space-y-3 overflow-auto flex-1 max-h-[500px] pr-2 scrollbar-hide">
+                        {employees.filter(emp => {
+                          const record = records.find(r => r.userId === emp.id && r.date === format(selectedDate, 'yyyy-MM-dd'));
+                          const isTodaySelected = isToday(selectedDate);
+                          
+                          if (statusFilter === 'all') return true;
+                          if (statusFilter === 'present') return record?.timeIn && !record?.timeOut;
+                          if (statusFilter === 'timed-out') return record?.timeOut;
+                          if (statusFilter === 'absent') return !record || (isTodaySelected ? false : record.status === 'missed');
+                          return true;
+                        }).map(emp => {
+                          const record = records.find(r => r.userId === emp.id && r.date === format(selectedDate, 'yyyy-MM-dd'));
+                          const isTodaySelected = isToday(selectedDate);
+                          
+                          let statusLabel = 'Absent';
+                          let statusColor = 'bg-zinc-50 text-zinc-400';
+                          
+                          if (record) {
+                            if (record.timeOut) {
+                              statusLabel = 'Timed Out';
+                              statusColor = 'bg-blue-50 text-blue-600';
+                            } else if (record.timeIn) {
+                              statusLabel = 'Present';
+                              statusColor = 'bg-emerald-50 text-emerald-600';
+                            } else if (record.status === 'missed') {
+                              statusLabel = 'Missed';
+                              statusColor = 'bg-amber-50 text-amber-600';
+                            }
+                          } else if (isTodaySelected) {
+                            statusLabel = 'Not Timed In';
+                            statusColor = 'bg-zinc-50 text-zinc-400';
+                          }
+
+                          return (
+                            <div key={emp.id} className="flex items-center justify-between p-3 rounded-xl border border-zinc-100 hover:border-zinc-200 transition-all">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-500 text-xs font-bold">
+                                  {emp.name.charAt(0)}
+                                </div>
+                                <div>
+                                  <p className="text-sm font-bold text-zinc-900">{emp.name}</p>
+                                  <p className="text-[10px] text-zinc-400 uppercase font-bold tracking-wider">{emp.employeeType}</p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <span className={cn(
+                                  "text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md",
+                                  statusColor
+                                )}>
+                                  {statusLabel}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {employees.filter(emp => {
+                          const record = records.find(r => r.userId === emp.id && r.date === format(selectedDate, 'yyyy-MM-dd'));
+                          const isTodaySelected = isToday(selectedDate);
+                          if (statusFilter === 'all') return true;
+                          if (statusFilter === 'present') return record?.timeIn && !record?.timeOut;
+                          if (statusFilter === 'timed-out') return record?.timeOut;
+                          if (statusFilter === 'absent') return !record || (isTodaySelected ? false : record.status === 'missed');
+                          return true;
+                        }).length === 0 && (
+                          <div className="text-center py-10">
+                            <p className="text-sm text-zinc-400">No employees found for this status</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
             {view === 'admins' && (
               <motion.div 
                 key="admins"
