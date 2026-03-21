@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Component } from 'react';
 import { 
   User as UserIcon, 
   Calendar as CalendarIcon, 
@@ -227,6 +227,8 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [statusFilter, setStatusFilter] = useState<'all' | 'present' | 'absent' | 'timed-out'>('all');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [alertMessage, setAlertMessage] = useState<string | null>(null);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [newUser, setNewUser] = useState({ 
     name: '', 
     email: '', 
@@ -259,10 +261,38 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
     return () => { unsubUsers(); unsubRecords(); unsubGaps(); };
   }, []);
 
+  const resetForm = () => {
+    setNewUser({ 
+      name: '', 
+      email: '', 
+      username: '',
+      password: '', 
+      authMethod: 'email',
+      faceImage: '', 
+      employeeType: 'regular',
+      requiredHours: 0
+    });
+    setEditingUser(null);
+    setShowAddModal(false);
+  };
+
   const handleCreateUser = async () => {
-    if (!newUser.name || !newUser.email || !newUser.username) return;
-    if (newUser.authMethod === 'email' && !newUser.password && !editingUser) return;
-    if (modalRole === 'employee' && !newUser.faceImage && !editingUser) return;
+    if (!newUser.name || !newUser.email || !newUser.username) {
+      setAlertMessage("Please fill in all required fields (Name, Email, Username).");
+      return;
+    }
+
+    const userId = editingUser?.id || '';
+    const isNewAuthUserNeeded = !editingUser || (editingUser.authMethod === 'google' && newUser.authMethod === 'email' && userId.startsWith('pending_'));
+
+    if (newUser.authMethod === 'email' && !newUser.password && isNewAuthUserNeeded) {
+      setAlertMessage("Password is required for new email accounts.");
+      return;
+    }
+    if (modalRole === 'employee' && !newUser.faceImage && !editingUser) {
+      setAlertMessage("Face image is required for new employees.");
+      return;
+    }
     
     setCreating(true);
     try {
@@ -284,14 +314,20 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
         }
       }
 
-      let userId = editingUser?.id || '';
+      let finalUserId = userId;
       
-      if (!editingUser) {
+      if (isNewAuthUserNeeded) {
         if (newUser.authMethod === 'email') {
           const authUser = await createSecondaryUser(newUser.email, newUser.password);
-          userId = authUser.uid;
-        } else {
-          userId = `pending_${newUser.email.replace(/\./g, '_')}`;
+          const oldUserId = finalUserId;
+          finalUserId = authUser.uid;
+          
+          // If we migrated from a pending user, delete the old document
+          if (oldUserId && oldUserId.startsWith('pending_') && oldUserId !== finalUserId) {
+            await deleteDoc(doc(db, 'users', oldUserId));
+          }
+        } else if (!editingUser) {
+          finalUserId = `pending_${newUser.email}`;
         }
       }
       
@@ -300,18 +336,25 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
         email: newUser.email,
         username: newUser.username,
         role: modalRole,
-        authMethod: newUser.authMethod
+        authMethod: newUser.authMethod,
+        updatedAt: new Date().toISOString()
       };
+
+      if (!editingUser) {
+        userDoc.createdAt = new Date().toISOString();
+      }
 
       if (modalRole === 'employee') {
         userDoc.faceImage = newUser.faceImage;
         userDoc.employeeType = newUser.employeeType;
         if (newUser.employeeType === 'intern') {
           userDoc.requiredHours = newUser.requiredHours;
+        } else {
+          userDoc.requiredHours = 0;
         }
       }
 
-      await setDoc(doc(db, 'users', userId), userDoc, { merge: true });
+      await setDoc(doc(db, 'users', finalUserId), userDoc, { merge: true });
 
       // Maintain usernames collection for login lookup
       if (!editingUser || editingUser.username !== newUser.username) {
@@ -320,24 +363,13 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
           await deleteDoc(doc(db, 'usernames', editingUser.username));
         }
         // Set new username mapping
-        await setDoc(doc(db, 'usernames', newUser.username), { email: newUser.email, userId });
+        await setDoc(doc(db, 'usernames', newUser.username), { email: newUser.email, userId: finalUserId });
       } else if (editingUser && editingUser.email !== newUser.email) {
         // Update email in username mapping if email changed but username stayed same
-        await setDoc(doc(db, 'usernames', newUser.username), { email: newUser.email, userId });
+        await setDoc(doc(db, 'usernames', newUser.username), { email: newUser.email, userId: finalUserId });
       }
 
-      setNewUser({ 
-        name: '', 
-        email: '', 
-        username: '',
-        password: '', 
-        authMethod: 'email',
-        faceImage: '', 
-        employeeType: 'regular',
-        requiredHours: 0
-      });
-      setShowAddModal(false);
-      setEditingUser(null);
+      resetForm();
     } catch (err: any) {
       console.error(err);
       let message = 'Failed to save account';
@@ -347,7 +379,7 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
           message = 'This email is already registered in the system. Please use a different email or check if the account already exists.';
         }
       }
-      alert(message);
+      setAlertMessage(message);
     } finally {
       setCreating(false);
     }
@@ -357,7 +389,7 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
-        alert("File size too large. Please upload an image smaller than 5MB.");
+        setAlertMessage("File size too large. Please upload an image smaller than 5MB.");
         return;
       }
       const reader = new FileReader();
@@ -386,13 +418,13 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return;
     try {
       const userToDelete = users.find(u => u.id === userId);
       if (userToDelete?.username) {
         await deleteDoc(doc(db, 'usernames', userToDelete.username));
       }
       await deleteDoc(doc(db, 'users', userId));
+      setDeletingUserId(null);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `users/${userId}`);
     }
@@ -519,7 +551,7 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
             <div className="flex gap-3">
               {view === 'employees' && (
                 <button 
-                  onClick={() => { setModalRole('employee'); setShowAddModal(true); }}
+                  onClick={() => { resetForm(); setModalRole('employee'); setShowAddModal(true); }}
                   className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-zinc-900 text-white px-6 py-3 rounded-full hover:bg-zinc-800 transition-all shadow-lg font-bold"
                 >
                   <Plus size={20} />
@@ -528,7 +560,7 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
               )}
               {view === 'admins' && (
                 <button 
-                  onClick={() => { setModalRole('admin'); setShowAddModal(true); }}
+                  onClick={() => { resetForm(); setModalRole('admin'); setShowAddModal(true); }}
                   className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-zinc-900 text-white px-6 py-3 rounded-full hover:bg-zinc-800 transition-all shadow-lg font-bold"
                 >
                   <Plus size={20} />
@@ -805,7 +837,7 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                         <Edit2 size={16} />
                       </button>
                       <button 
-                        onClick={() => handleDeleteUser(emp.id)}
+                        onClick={() => setDeletingUserId(emp.id)}
                         className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-all"
                         title="Delete User"
                       >
@@ -848,9 +880,9 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                       >
                         <Edit2 size={16} />
                       </button>
-                      {admin.role === 'admin' && (
+                      {admin.role === 'admin' && admin.id !== user.id && (
                         <button 
-                          onClick={() => handleDeleteUser(admin.id)}
+                          onClick={() => setDeletingUserId(admin.id)}
                           className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-all"
                           title="Delete Admin"
                         >
@@ -978,7 +1010,7 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                 <h3 className="text-xl sm:text-2xl font-bold text-zinc-900">
                   {editingUser ? 'Edit' : 'Add New'} {modalRole === 'admin' ? 'Admin' : 'Employee'}
                 </h3>
-                <button onClick={() => { setShowAddModal(false); setEditingUser(null); }} className="p-2 hover:bg-zinc-100 rounded-full">
+                <button onClick={resetForm} className="p-2 hover:bg-zinc-100 rounded-full">
                   <XCircle size={24} className="text-zinc-400" />
                 </button>
               </div>
@@ -1117,20 +1149,74 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
 
               <div className="mt-10 flex flex-col sm:flex-row gap-4 pb-6 sm:pb-0">
                 <button 
-                  onClick={() => setShowAddModal(false)}
+                  onClick={resetForm}
                   className="order-2 sm:order-1 flex-1 px-6 py-4 rounded-2xl border border-zinc-200 font-bold text-zinc-500 hover:bg-zinc-50 transition-all"
                 >
                   Cancel
                 </button>
                 <button 
                   onClick={handleCreateUser}
-                  disabled={creating}
+                  disabled={creating || !newUser.name || !newUser.email || !newUser.username}
                   className="order-1 sm:order-2 flex-1 px-6 py-4 rounded-2xl bg-zinc-900 text-white font-bold hover:bg-zinc-800 transition-all shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {creating && <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
                   {editingUser ? 'Save Changes' : `Create ${modalRole === 'admin' ? 'Admin' : 'Account'}`}
                 </button>
               </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Alert Modal */}
+      {alertMessage && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] p-6">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-8 text-center"
+          >
+            <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+              <AlertCircle size={32} />
+            </div>
+            <h3 className="text-xl font-bold text-zinc-900 mb-2">Notification</h3>
+            <p className="text-zinc-500 mb-8">{alertMessage}</p>
+            <button 
+              onClick={() => setAlertMessage(null)}
+              className="w-full bg-zinc-900 text-white py-4 rounded-2xl font-bold hover:bg-zinc-800 transition-all shadow-lg"
+            >
+              Close
+            </button>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {deletingUserId && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] p-6">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-8 text-center"
+          >
+            <div className="w-16 h-16 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-6">
+              <AlertCircle size={32} />
+            </div>
+            <h3 className="text-xl font-bold text-zinc-900 mb-2">Confirm Delete</h3>
+            <p className="text-zinc-500 mb-8">Are you sure you want to delete this user? This action cannot be undone.</p>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button 
+                onClick={() => setDeletingUserId(null)}
+                className="flex-1 px-6 py-4 rounded-2xl border border-zinc-200 font-bold text-zinc-500 hover:bg-zinc-50 transition-all"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => handleDeleteUser(deletingUserId)}
+                className="flex-1 px-6 py-4 rounded-2xl bg-red-600 text-white font-bold hover:bg-red-700 transition-all shadow-lg"
+              >
+                Delete
+              </button>
             </div>
           </motion.div>
         </div>
@@ -1483,33 +1569,70 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
       
       // 2. If not found, try to find by email (for pre-created users)
       if (!userDoc.exists() && userEmail) {
-        const q = query(collection(db, 'users'), where('email', '==', userEmail));
-        const querySnapshot = await getDocs(q);
-        if (!querySnapshot.empty) {
-          const pendingDoc = querySnapshot.docs[0];
-          // Transfer data to UID-based document
+        // Try direct lookup with pending prefix
+        const pendingId = `pending_${userEmail}`;
+        const pendingDoc = await getDoc(doc(db, 'users', pendingId));
+        
+        if (pendingDoc.exists()) {
           const userData = pendingDoc.data();
-          await setDoc(doc(db, 'users', result.user.uid), userData);
-          // Optionally delete the pending doc
-          // await deleteDoc(pendingDoc.ref);
+          // Transfer data to UID-based document
+          await setDoc(doc(db, 'users', result.user.uid), {
+            ...userData,
+            authMethod: 'google'
+          });
+          
+          // Update username mapping to point to real UID
+          if (userData.username) {
+            await setDoc(doc(db, 'usernames', userData.username), { 
+              email: userEmail, 
+              userId: result.user.uid 
+            });
+          }
+
+          // Delete the pending doc
+          await deleteDoc(pendingDoc.ref);
           userDoc = await getDoc(doc(db, 'users', result.user.uid));
+        } else {
+          // Fallback to query if ID format changed
+          const q = query(collection(db, 'users'), where('email', '==', userEmail));
+          const querySnapshot = await getDocs(q);
+          if (!querySnapshot.empty) {
+            const pendingDoc = querySnapshot.docs[0];
+            const userData = pendingDoc.data();
+            await setDoc(doc(db, 'users', result.user.uid), {
+              ...userData,
+              authMethod: 'google'
+            });
+
+            // Update username mapping to point to real UID
+            if (userData.username) {
+              await setDoc(doc(db, 'usernames', userData.username), { 
+                email: userEmail, 
+                userId: result.user.uid 
+              });
+            }
+
+            await deleteDoc(pendingDoc.ref);
+            userDoc = await getDoc(doc(db, 'users', result.user.uid));
+          }
         }
       }
       
       if (userDoc.exists()) {
         const userData = { id: userDoc.id, ...userDoc.data() } as User;
         onLogin(userData);
-      } else if (userEmail === 'isaiahnoelsalazar474@gmail.com') {
-        // Bootstrap admin
-        const adminData = {
-          name: result.user.displayName || 'Admin',
-          email: userEmail || '',
+      } else if (userEmail === "isaiahnoelsalazar474@gmail.com") {
+        // Bootstrap admin: Auto-create document
+        const adminData: User = {
+          id: result.user.uid,
+          email: userEmail,
           username: 'admin',
-          role: 'admin' as const,
-          authMethod: 'google' as const
+          role: 'admin',
+          name: 'System Administrator',
+          authMethod: 'google',
+          createdAt: new Date().toISOString()
         };
         await setDoc(doc(db, 'users', result.user.uid), adminData);
-        await setDoc(doc(db, 'usernames', 'admin'), { email: userEmail, userId: result.user.uid });
         onLogin({ id: result.user.uid, ...adminData });
       } else {
         setError('Access denied. Please contact your administrator to register your account.');
@@ -1550,17 +1673,18 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
       if (userDoc.exists()) {
         const userData = { id: userDoc.id, ...userDoc.data() } as User;
         onLogin(userData);
-      } else if (userEmail === 'isaiahnoelsalazar474@gmail.com') {
-        // Bootstrap admin via email if they registered it
-        const adminData = {
-          name: 'Admin',
-          email: userEmail || '',
+      } else if (userEmail === "isaiahnoelsalazar474@gmail.com") {
+        // Bootstrap admin: Auto-create document
+        const adminData: User = {
+          id: result.user.uid,
+          email: userEmail,
           username: 'admin',
-          role: 'admin' as const,
-          authMethod: 'email' as const
+          role: 'admin',
+          name: 'System Administrator',
+          authMethod: 'email',
+          createdAt: new Date().toISOString()
         };
         await setDoc(doc(db, 'users', result.user.uid), adminData);
-        await setDoc(doc(db, 'usernames', 'admin'), { email: userEmail, userId: result.user.uid });
         onLogin({ id: result.user.uid, ...adminData });
       } else {
         setError('Access denied. Please contact your administrator.');
@@ -1723,24 +1847,101 @@ const Login = ({ onLogin }: { onLogin: (user: User) => void }) => {
   );
 };
 
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  errorInfo: string | null;
+}
+
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, errorInfo: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, errorInfo: error.message };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      let displayMessage = "Something went wrong.";
+      try {
+        const parsed = JSON.parse(this.state.errorInfo || "");
+        if (parsed.error && parsed.operationType) {
+          displayMessage = `Firestore Error: ${parsed.operationType} on ${parsed.path || 'unknown path'} failed. ${parsed.error}`;
+        }
+      } catch (e) {
+        displayMessage = this.state.errorInfo || "An unexpected error occurred.";
+      }
+
+      return (
+        <div className="min-h-screen bg-zinc-50 flex items-center justify-center p-6">
+          <div className="bg-white p-10 rounded-3xl shadow-2xl max-w-md w-full text-center border border-zinc-200">
+            <div className="w-20 h-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+              <AlertCircle size={48} />
+            </div>
+            <h2 className="text-2xl font-bold text-zinc-900 mb-4">Application Error</h2>
+            <p className="text-zinc-500 mb-8">{displayMessage}</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="w-full bg-zinc-900 text-white py-4 rounded-2xl font-bold hover:bg-zinc-800 transition-all shadow-lg"
+            >
+              Reload Application
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-        if (userDoc.exists()) {
-          const userData = userDoc.data() as User;
-          setUser({ id: userDoc.id, ...userData } as User);
+      try {
+        if (firebaseUser) {
+          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          if (userDoc.exists()) {
+            const userData = userDoc.data() as User;
+            setUser({ id: userDoc.id, ...userData } as User);
+          } else if (firebaseUser.email === "isaiahnoelsalazar474@gmail.com") {
+            // Bootstrap admin: Auto-create document if it doesn't exist
+            const adminData: User = {
+              id: firebaseUser.uid,
+              email: firebaseUser.email,
+              username: 'admin',
+              role: 'admin',
+              name: 'System Administrator',
+              authMethod: 'google',
+              createdAt: new Date().toISOString()
+            };
+            await setDoc(doc(db, 'users', firebaseUser.uid), adminData);
+            setUser({ id: firebaseUser.uid, ...adminData });
+          } else {
+            setUser(null);
+          }
         } else {
           setUser(null);
         }
-      } else {
+      } catch (err) {
+        console.error("Auth state change error:", err);
         setUser(null);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
     return () => unsub();
   }, []);
@@ -1760,9 +1961,13 @@ export default function App() {
 
   if (!user) return <Login onLogin={setUser} />;
 
-  return user.role === 'admin' ? (
-    <AdminDashboard user={user} onLogout={handleLogout} />
-  ) : (
-    <EmployeeDashboard user={user} onLogout={handleLogout} />
+  return (
+    <ErrorBoundary>
+      {user.role === 'admin' ? (
+        <AdminDashboard user={user} onLogout={handleLogout} />
+      ) : (
+        <EmployeeDashboard user={user} onLogout={handleLogout} />
+      )}
+    </ErrorBoundary>
   );
 }

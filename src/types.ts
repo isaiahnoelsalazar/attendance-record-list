@@ -10,6 +10,7 @@ export interface User {
   employeeType?: 'regular' | 'intern';
   requiredHours?: number;
   faceImage?: string; // Base64
+  createdAt?: string;
 }
 
 export interface AttendanceRecord {
