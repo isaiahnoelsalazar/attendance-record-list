@@ -113,10 +113,23 @@ const Camera = ({ onCapture, registeredFace }: { onCapture: (img: string) => voi
 
   const capture = async () => {
     if (videoRef.current && canvasRef.current) {
-      const context = canvasRef.current.getContext('2d');
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const context = canvas.getContext('2d');
       if (context) {
-        context.drawImage(videoRef.current, 0, 0, 640, 480);
-        const rawImg = canvasRef.current.toDataURL('image/jpeg', 0.7);
+        // Calculate crop to maintain 1:1 aspect ratio
+        const videoWidth = video.videoWidth;
+        const videoHeight = video.videoHeight;
+        const size = Math.min(videoWidth, videoHeight);
+        const startX = (videoWidth - size) / 2;
+        const startY = (videoHeight - size) / 2;
+
+        // Set canvas to square
+        canvas.width = 500;
+        canvas.height = 500;
+
+        context.drawImage(video, startX, startY, size, size, 0, 0, 500, 500);
+        const rawImg = canvas.toDataURL('image/jpeg', 0.7);
         const img = await compressImage(rawImg);
         
         if (registeredFace) {
@@ -137,9 +150,9 @@ const Camera = ({ onCapture, registeredFace }: { onCapture: (img: string) => voi
 
   return (
     <div className="flex flex-col items-center gap-4 bg-white p-4 sm:p-6 rounded-2xl shadow-xl border border-zinc-200">
-      <div className="relative w-full max-w-md aspect-video bg-zinc-100 rounded-xl overflow-hidden border-2 border-zinc-300">
+      <div className="relative w-full max-w-[320px] aspect-square bg-zinc-100 rounded-xl overflow-hidden border-2 border-zinc-300 shadow-inner">
         <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
-        <canvas ref={canvasRef} width={640} height={480} className="hidden" />
+        <canvas ref={canvasRef} className="hidden" />
         {isVerifying && (
           <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white">
             <div className="flex flex-col items-center gap-2">
@@ -242,19 +255,24 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
   const [creating, setCreating] = useState(false);
   const [externalRecords, setExternalRecords] = useState<any[]>([]);
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [isFetchingExternal, setIsFetchingExternal] = useState(false);
+
+  const fetchExternal = async () => {
+    setIsFetchingExternal(true);
+    try {
+      const res = await fetch("https://insgi-be.vercel.app/api/attendance");
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setExternalRecords(data);
+      }
+    } catch (err) {
+      console.error("Error fetching external records:", err);
+    } finally {
+      setIsFetchingExternal(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchExternal = async () => {
-      try {
-        const res = await fetch("https://insgi-be.vercel.app/api/attendance");
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          setExternalRecords(data);
-        }
-      } catch (err) {
-        console.error("Error fetching external records:", err);
-      }
-    };
     if (view === 'attendance' || view === 'overview') {
       fetchExternal();
     }
@@ -922,6 +940,17 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                 exit={{ opacity: 0, y: -20 }}
                 className="flex flex-col gap-8"
               >
+                <div className="flex justify-between items-center">
+                  <h2 className="text-2xl font-bold text-zinc-900">Attendance Records</h2>
+                  <button 
+                    onClick={fetchExternal}
+                    disabled={isFetchingExternal}
+                    className="flex items-center gap-2 px-4 py-2 bg-white border border-zinc-200 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-all disabled:opacity-50"
+                  >
+                    <Clock size={16} className={cn(isFetchingExternal && "animate-spin")} />
+                    {isFetchingExternal ? 'Refreshing...' : 'Refresh Photos'}
+                  </button>
+                </div>
                 <div className="bg-white rounded-2xl shadow-sm border border-zinc-200 overflow-x-auto scrollbar-hide">
                   <table className="w-full text-left min-w-[800px]">
                     <thead className="bg-zinc-50 border-b border-zinc-200">
@@ -937,9 +966,18 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                     <tbody className="divide-y divide-zinc-100">
                       {records.map(r => {
                         const emp = employees.find(e => e.id === r.userId);
-                        const extRecs = externalRecords.filter(er => er.id === r.userId && er.date === r.date);
-                        const inPhoto = extRecs.find(er => er.time_in_photo)?.time_in_photo;
-                        const outPhoto = extRecs.find(er => er.time_out_photo)?.time_out_photo;
+                        // Robust matching: check both string and potentially numeric IDs, and date strings
+                        const extRecs = externalRecords.filter(er => 
+                          String(er.id) === String(r.userId) && 
+                          String(er.date) === String(r.date)
+                        );
+                        
+                        // Check multiple possible property names for photos
+                        const inPhoto = extRecs.find(er => er.time_in_photo || er.timeInPhoto || (er.photo && er.time_in))?.time_in_photo || 
+                                        extRecs.find(er => er.photo && er.time_in)?.photo;
+                                        
+                        const outPhoto = extRecs.find(er => er.time_out_photo || er.timeOutPhoto || (er.photo && er.time_out))?.time_out_photo ||
+                                         extRecs.find(er => er.photo && er.time_out)?.photo;
 
                         return (
                           <tr key={r.id} className="hover:bg-zinc-50 transition-colors">
@@ -948,26 +986,40 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                             <td className="px-6 py-4 text-zinc-500">{r.timeIn ? format(parseISO(r.timeIn), 'hh:mm a') : '-'}</td>
                             <td className="px-6 py-4 text-zinc-500">{r.timeOut ? format(parseISO(r.timeOut), 'hh:mm a') : '-'}</td>
                             <td className="px-6 py-4">
-                              <div className="flex gap-2">
-                                {inPhoto && (
-                                  <button 
-                                    onClick={() => setSelectedPhoto(inPhoto)}
-                                    className="w-8 h-8 rounded-lg overflow-hidden border border-zinc-200 hover:border-zinc-400 transition-all"
-                                    title="View Time In Photo"
-                                  >
-                                    <img src={inPhoto} alt="In" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                                  </button>
+                              <div className="flex gap-3">
+                                {inPhoto ? (
+                                  <div className="flex flex-col items-center gap-1">
+                                    <button 
+                                      onClick={() => setSelectedPhoto(inPhoto)}
+                                      className="w-10 h-10 rounded-lg overflow-hidden border-2 border-emerald-100 hover:border-emerald-400 transition-all shadow-sm"
+                                      title="View Time In Photo"
+                                    >
+                                      <img src={inPhoto} alt="In" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                    </button>
+                                    <span className="text-[9px] font-bold text-emerald-600 uppercase tracking-tighter">In</span>
+                                  </div>
+                                ) : (
+                                  <div className="w-10 h-10 rounded-lg bg-zinc-50 border border-dashed border-zinc-200 flex items-center justify-center" title="No Time In Photo">
+                                    <ImageIcon size={14} className="text-zinc-300" />
+                                  </div>
                                 )}
-                                {outPhoto && (
-                                  <button 
-                                    onClick={() => setSelectedPhoto(outPhoto)}
-                                    className="w-8 h-8 rounded-lg overflow-hidden border border-zinc-200 hover:border-zinc-400 transition-all"
-                                    title="View Time Out Photo"
-                                  >
-                                    <img src={outPhoto} alt="Out" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                                  </button>
+                                
+                                {outPhoto ? (
+                                  <div className="flex flex-col items-center gap-1">
+                                    <button 
+                                      onClick={() => setSelectedPhoto(outPhoto)}
+                                      className="w-10 h-10 rounded-lg overflow-hidden border-2 border-blue-100 hover:border-blue-400 transition-all shadow-sm"
+                                      title="View Time Out Photo"
+                                    >
+                                      <img src={outPhoto} alt="Out" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                    </button>
+                                    <span className="text-[9px] font-bold text-blue-600 uppercase tracking-tighter">Out</span>
+                                  </div>
+                                ) : (
+                                  <div className="w-10 h-10 rounded-lg bg-zinc-50 border border-dashed border-zinc-200 flex items-center justify-center" title="No Time Out Photo">
+                                    <ImageIcon size={14} className="text-zinc-300" />
+                                  </div>
                                 )}
-                                {!inPhoto && !outPhoto && <span className="text-zinc-300 text-[10px] font-bold uppercase tracking-wider">No Photos</span>}
                               </div>
                             </td>
                             <td className="px-6 py-4">
@@ -1344,6 +1396,7 @@ const EmployeeDashboard = ({ user, onLogout }: { user: User, onLogout: () => voi
                 time_out: null,
                 time_in_photo: img,
                 time_out_photo: null,
+                photo: img, // Generic field for backward compatibility
                 date: today
               })
             });
@@ -1368,6 +1421,7 @@ const EmployeeDashboard = ({ user, onLogout }: { user: User, onLogout: () => voi
                 time_out: now,
                 time_in_photo: null,
                 time_out_photo: img,
+                photo: img, // Generic field for backward compatibility
                 date: today
               })
             });
