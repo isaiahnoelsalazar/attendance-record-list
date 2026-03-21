@@ -240,6 +240,25 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
     requiredHours: 0
   });
   const [creating, setCreating] = useState(false);
+  const [externalRecords, setExternalRecords] = useState<any[]>([]);
+  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchExternal = async () => {
+      try {
+        const res = await fetch("https://insgi-be.vercel.app/api/attendance");
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setExternalRecords(data);
+        }
+      } catch (err) {
+        console.error("Error fetching external records:", err);
+      }
+    };
+    if (view === 'attendance' || view === 'overview') {
+      fetchExternal();
+    }
+  }, [view]);
 
   useEffect(() => {
     setIsMobileMenuOpen(false);
@@ -911,18 +930,46 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                         <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase tracking-wider">Date</th>
                         <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase tracking-wider">Time In</th>
                         <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase tracking-wider">Time Out</th>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase tracking-wider">Photos</th>
                         <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase tracking-wider">Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-100">
                       {records.map(r => {
                         const emp = employees.find(e => e.id === r.userId);
+                        const extRecs = externalRecords.filter(er => er.id === r.userId && er.date === r.date);
+                        const inPhoto = extRecs.find(er => er.time_in_photo)?.time_in_photo;
+                        const outPhoto = extRecs.find(er => er.time_out_photo)?.time_out_photo;
+
                         return (
                           <tr key={r.id} className="hover:bg-zinc-50 transition-colors">
                             <td className="px-6 py-4 font-medium text-zinc-900">{emp?.name || 'Unknown'}</td>
                             <td className="px-6 py-4 text-zinc-500">{r.date}</td>
                             <td className="px-6 py-4 text-zinc-500">{r.timeIn ? format(parseISO(r.timeIn), 'hh:mm a') : '-'}</td>
                             <td className="px-6 py-4 text-zinc-500">{r.timeOut ? format(parseISO(r.timeOut), 'hh:mm a') : '-'}</td>
+                            <td className="px-6 py-4">
+                              <div className="flex gap-2">
+                                {inPhoto && (
+                                  <button 
+                                    onClick={() => setSelectedPhoto(inPhoto)}
+                                    className="w-8 h-8 rounded-lg overflow-hidden border border-zinc-200 hover:border-zinc-400 transition-all"
+                                    title="View Time In Photo"
+                                  >
+                                    <img src={inPhoto} alt="In" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                  </button>
+                                )}
+                                {outPhoto && (
+                                  <button 
+                                    onClick={() => setSelectedPhoto(outPhoto)}
+                                    className="w-8 h-8 rounded-lg overflow-hidden border border-zinc-200 hover:border-zinc-400 transition-all"
+                                    title="View Time Out Photo"
+                                  >
+                                    <img src={outPhoto} alt="Out" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                  </button>
+                                )}
+                                {!inPhoto && !outPhoto && <span className="text-zinc-300 text-[10px] font-bold uppercase tracking-wider">No Photos</span>}
+                              </div>
+                            </td>
                             <td className="px-6 py-4">
                               <span className={cn(
                                 "px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider",
@@ -1221,6 +1268,23 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
           </motion.div>
         </div>
       )}
+
+      {/* Photo Viewer Modal */}
+      {selectedPhoto && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[110] p-6" onClick={() => setSelectedPhoto(null)}>
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full p-4 overflow-hidden relative"
+            onClick={e => e.stopPropagation()}
+          >
+            <button onClick={() => setSelectedPhoto(null)} className="absolute top-6 right-6 p-2 bg-black/50 text-white rounded-full hover:bg-black/70 transition-all z-10">
+              <XCircle size={24} />
+            </button>
+            <img src={selectedPhoto} alt="Attendance verification" className="w-full h-auto rounded-2xl" referrerPolicy="no-referrer" />
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1257,6 +1321,7 @@ const EmployeeDashboard = ({ user, onLogout }: { user: User, onLogout: () => voi
   const handleTimeAction = async (img: string) => {
     const today = format(new Date(), 'yyyy-MM-dd');
     const existingRecord = records.find(r => r.date === today);
+    const now = new Date().toISOString();
 
     try {
       if (cameraMode === 'in') {
@@ -1264,15 +1329,51 @@ const EmployeeDashboard = ({ user, onLogout }: { user: User, onLogout: () => voi
           await addDoc(collection(db, 'records'), {
             userId: user.id,
             date: today,
-            timeIn: new Date().toISOString(),
+            timeIn: now,
             status: 'present'
           });
+
+          // Send to external SQL API
+          try {
+            await fetch("https://insgi-be.vercel.app/api/attendance", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: user.id,
+                time_in: now,
+                time_out: null,
+                time_in_photo: img,
+                time_out_photo: null,
+                date: today
+              })
+            });
+          } catch (apiErr) {
+            console.error("External API Error (Clock In):", apiErr);
+          }
         }
       } else {
         if (existingRecord && !existingRecord.timeOut) {
           await updateDoc(doc(db, 'records', existingRecord.id), {
-            timeOut: new Date().toISOString()
+            timeOut: now
           });
+
+          // Send to external SQL API
+          try {
+            await fetch("https://insgi-be.vercel.app/api/attendance", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: user.id,
+                time_in: existingRecord.timeIn,
+                time_out: now,
+                time_in_photo: null,
+                time_out_photo: img,
+                date: today
+              })
+            });
+          } catch (apiErr) {
+            console.error("External API Error (Clock Out):", apiErr);
+          }
         }
       }
     } catch (err) {
