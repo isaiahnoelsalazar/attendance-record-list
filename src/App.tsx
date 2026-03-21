@@ -28,6 +28,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths, isToday, parseISO } from 'date-fns';
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -478,21 +480,87 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
     { id: 'gaps', label: 'Gap Requests', icon: AlertCircle },
   ];
 
-  const handleExport = () => {
-    const data = records.map(r => {
-      const emp = employees.find(e => e.id === r.userId);
-      return {
-        Employee: emp?.name || 'Unknown',
-        Date: r.date,
-        'Time In': r.timeIn ? format(parseISO(r.timeIn), 'hh:mm a') : '-',
-        'Time Out': r.timeOut ? format(parseISO(r.timeOut), 'hh:mm a') : '-',
-        Status: r.status
-      };
-    });
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Attendance");
-    XLSX.writeFile(wb, "Attendance_Report.xlsx");
+  const handleExport = async () => {
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Attendance');
+
+      worksheet.columns = [
+        { header: 'Employee', key: 'name', width: 25 },
+        { header: 'Date', key: 'date', width: 15 },
+        { header: 'Time In', key: 'timeIn', width: 15 },
+        { header: 'Time Out', key: 'timeOut', width: 15 },
+        { header: 'Status', key: 'status', width: 15 },
+        { header: 'Time In Photo', key: 'inPhoto', width: 15 },
+        { header: 'Time Out Photo', key: 'outPhoto', width: 15 }
+      ];
+
+      worksheet.getRow(1).font = { bold: true };
+      worksheet.getRow(1).height = 20;
+
+      for (const [index, r] of records.entries()) {
+        const emp = employees.find(e => e.id === r.userId);
+        const extRecs = externalRecords.filter(er => 
+          String(er.id) === String(r.userId) && 
+          String(er.date) === String(r.date)
+        );
+        
+        const inPhoto = extRecs.find(er => er.time_in_photo || er.timeInPhoto || (er.photo && er.time_in))?.time_in_photo || 
+                        extRecs.find(er => er.photo && er.time_in)?.photo;
+                        
+        const outPhoto = extRecs.find(er => er.time_out_photo || er.timeOutPhoto || (er.photo && er.time_out))?.time_out_photo ||
+                         extRecs.find(er => er.photo && er.time_out)?.photo;
+
+        const row = worksheet.addRow({
+          name: emp?.name || 'Unknown',
+          date: r.date,
+          timeIn: r.timeIn ? format(parseISO(r.timeIn), 'hh:mm a') : '-',
+          timeOut: r.timeOut ? format(parseISO(r.timeOut), 'hh:mm a') : '-',
+          status: r.status
+        });
+        
+        row.height = 80; // Set row height for images
+        row.alignment = { vertical: 'middle', horizontal: 'left' };
+
+        if (inPhoto && inPhoto.startsWith('data:image')) {
+          try {
+            const base64 = inPhoto.split(',')[1];
+            const imageId = workbook.addImage({
+              base64: base64,
+              extension: 'jpeg',
+            });
+            worksheet.addImage(imageId, {
+              tl: { col: 5, row: index + 1 },
+              ext: { width: 100, height: 100 }
+            });
+          } catch (e) {
+            console.error("Error adding inPhoto to excel", e);
+          }
+        }
+
+        if (outPhoto && outPhoto.startsWith('data:image')) {
+          try {
+            const base64 = outPhoto.split(',')[1];
+            const imageId = workbook.addImage({
+              base64: base64,
+              extension: 'jpeg',
+            });
+            worksheet.addImage(imageId, {
+              tl: { col: 6, row: index + 1 },
+              ext: { width: 100, height: 100 }
+            });
+          } catch (e) {
+            console.error("Error adding outPhoto to excel", e);
+          }
+        }
+      }
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      saveAs(new Blob([buffer]), `Attendance_Report_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+    } catch (error) {
+      console.error("Export failed:", error);
+      setAlertMessage("Failed to export Excel file. Please try again.");
+    }
   };
 
   const handleGapAction = async (gapId: string, status: 'approved' | 'denied') => {
