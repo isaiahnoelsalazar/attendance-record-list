@@ -760,19 +760,19 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                           }
 
                           return (
-                            <div key={emp.id} className="flex items-center justify-between p-3 rounded-xl border border-zinc-100 hover:border-zinc-200 transition-all">
-                              <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-500 text-xs font-bold">
+                            <div key={emp.id} className="flex items-center justify-between p-3 rounded-xl border border-zinc-100 hover:border-zinc-200 transition-all gap-3">
+                              <div className="flex items-center gap-3 min-w-0 flex-1">
+                                <div className="w-8 h-8 rounded-full bg-zinc-100 flex-shrink-0 flex items-center justify-center text-zinc-500 text-xs font-bold">
                                   {emp.name.charAt(0)}
                                 </div>
-                                <div>
-                                  <p className="text-sm font-bold text-zinc-900">{emp.name}</p>
-                                  <p className="text-[10px] text-zinc-400 uppercase font-bold tracking-wider">{emp.employeeType}</p>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-bold text-zinc-900 truncate">{emp.name}</p>
+                                  <p className="text-[10px] text-zinc-400 uppercase font-bold tracking-wider truncate">{emp.employeeType}</p>
                                 </div>
                               </div>
-                              <div className="text-right">
+                              <div className="text-right flex-shrink-0">
                                 <span className={cn(
-                                  "text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md",
+                                  "text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md whitespace-nowrap",
                                   statusColor
                                 )}>
                                   {statusLabel}
@@ -810,25 +810,25 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                 className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
               >
                 {employees.map(emp => (
-                  <div key={emp.id} className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200 flex items-center justify-between group">
-                    <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 rounded-full overflow-hidden bg-zinc-100 flex items-center justify-center">
+                  <div key={emp.id} className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200 flex items-center justify-between group gap-4">
+                    <div className="flex items-center gap-4 min-w-0 flex-1">
+                      <div className="w-16 h-16 rounded-full overflow-hidden bg-zinc-100 flex-shrink-0 flex items-center justify-center">
                         {emp.faceImage ? (
-                          <img src={emp.faceImage} alt={emp.name} className="w-full h-full object-cover" />
+                          <img src={emp.faceImage} alt={emp.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                         ) : (
                           <UserIcon size={32} className="text-zinc-400" />
                         )}
                       </div>
-                      <div>
-                        <h4 className="font-bold text-zinc-900">{emp.name}</h4>
-                        <p className="text-sm text-zinc-500">{emp.email}</p>
-                        <div className="flex gap-2 mt-1">
-                          <span className="text-[10px] font-bold uppercase tracking-widest bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded">{emp.employeeType}</span>
-                          {emp.username && <span className="text-[10px] font-bold uppercase tracking-widest bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded">@{emp.username}</span>}
+                      <div className="min-w-0 flex-1">
+                        <h4 className="font-bold text-zinc-900 truncate">{emp.name}</h4>
+                        <p className="text-sm text-zinc-500 truncate">{emp.email}</p>
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          <span className="text-[10px] font-bold uppercase tracking-widest bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded whitespace-nowrap">{emp.employeeType}</span>
+                          {emp.username && <span className="text-[10px] font-bold uppercase tracking-widest bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded whitespace-nowrap truncate max-w-[100px]">@{emp.username}</span>}
                         </div>
                       </div>
                     </div>
-                    <div className="flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex flex-col gap-2 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity flex-shrink-0">
                       <button 
                         onClick={() => handleEditUser(emp)}
                         className="p-2 bg-zinc-100 text-zinc-600 rounded-lg hover:bg-zinc-200 transition-all"
@@ -858,21 +858,21 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                 className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
               >
                 {admins.map(admin => (
-                  <div key={admin.id} className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200 flex items-center justify-between group">
-                    <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 rounded-full overflow-hidden bg-zinc-900 flex items-center justify-center text-white">
+                  <div key={admin.id} className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200 flex items-center justify-between group gap-4">
+                    <div className="flex items-center gap-4 min-w-0 flex-1">
+                      <div className="w-16 h-16 rounded-full overflow-hidden bg-zinc-900 flex-shrink-0 flex items-center justify-center text-white">
                         <Shield size={32} />
                       </div>
-                      <div>
-                        <h4 className="font-bold text-zinc-900">{admin.name}</h4>
-                        <p className="text-sm text-zinc-500">{admin.email}</p>
-                        <div className="flex gap-2 mt-1">
-                          <span className="text-[10px] font-bold uppercase tracking-widest bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded">Administrator</span>
-                          {admin.username && <span className="text-[10px] font-bold uppercase tracking-widest bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded">@{admin.username}</span>}
+                      <div className="min-w-0 flex-1">
+                        <h4 className="font-bold text-zinc-900 truncate">{admin.name}</h4>
+                        <p className="text-sm text-zinc-500 truncate">{admin.email}</p>
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          <span className="text-[10px] font-bold uppercase tracking-widest bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded whitespace-nowrap">Administrator</span>
+                          {admin.username && <span className="text-[10px] font-bold uppercase tracking-widest bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded whitespace-nowrap truncate max-w-[100px]">@{admin.username}</span>}
                         </div>
                       </div>
                     </div>
-                    <div className="flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex flex-col gap-2 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity flex-shrink-0">
                       <button 
                         onClick={() => handleEditUser(admin)}
                         className="p-2 bg-zinc-100 text-zinc-600 rounded-lg hover:bg-zinc-200 transition-all"
