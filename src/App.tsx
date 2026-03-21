@@ -848,7 +848,7 @@ const AdminDashboard = ({ user, onLogout }: { user: User, onLogout: () => void }
                       >
                         <Edit2 size={16} />
                       </button>
-                      {admin.email !== 'isaiahnoelsalazar474@gmail.com' && (
+                      {admin.role === 'admin' && (
                         <button 
                           onClick={() => handleDeleteUser(admin.id)}
                           className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-all"
@@ -1733,41 +1733,9 @@ export default function App() {
         const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
         if (userDoc.exists()) {
           const userData = userDoc.data() as User;
-          // Ensure bootstrap admin has a username and mapping
-          if (userData.email === 'isaiahnoelsalazar474@gmail.com') {
-            const username = userData.username || 'admin';
-            const updatedData = { ...userData, username, role: 'admin' };
-            
-            // Ensure username mapping exists for login
-            const usernameDoc = await getDoc(doc(db, 'usernames', username));
-            if (!usernameDoc.exists()) {
-              await setDoc(doc(db, 'usernames', username), { email: userData.email, userId: firebaseUser.uid });
-            }
-            
-            if (!userData.username || userData.role !== 'admin') {
-              await setDoc(doc(db, 'users', firebaseUser.uid), updatedData, { merge: true });
-            }
-            setUser({ id: userDoc.id, ...updatedData } as User);
-          } else {
-            setUser({ id: userDoc.id, ...userData } as User);
-          }
+          setUser({ id: userDoc.id, ...userData } as User);
         } else {
-          // If bootstrap admin document is missing, create it
-          if (firebaseUser.email === 'isaiahnoelsalazar474@gmail.com') {
-            const adminData: User = {
-              id: firebaseUser.uid,
-              name: 'System Admin',
-              email: firebaseUser.email,
-              username: 'admin',
-              role: 'admin',
-              authMethod: 'google' // Assuming Google login for bootstrap admin
-            };
-            await setDoc(doc(db, 'users', firebaseUser.uid), adminData);
-            await setDoc(doc(db, 'usernames', 'admin'), { email: firebaseUser.email, userId: firebaseUser.uid });
-            setUser(adminData);
-          } else {
-            setUser(null);
-          }
+          setUser(null);
         }
       } else {
         setUser(null);
