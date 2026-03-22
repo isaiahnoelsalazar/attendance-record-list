@@ -1,5 +1,0 @@
-{
-  "name": "Attendance System",
-  "description": "A comprehensive attendance management system with face recognition, calendar views, and admin controls.",
-  "requestFramePermissions": ["camera"]
-}
